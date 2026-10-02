@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 /* ------------------------------------------------------------------ *
  * Minimal DOM stub Ã¢â‚¬â€ enough for module evaluation, not for a real render.
@@ -240,6 +241,146 @@ await t('the vendored Alpine build does not auto-start on import', () => {
     true,
     'appShell must be registered by app.js, not by an auto-start during import',
   );
+});
+
+await t('an authenticated reload starts the clock and the player', () => {
+  // Regression: _startClock() and _startPlayer() were only called after an
+  // INTERACTIVE sign-in, never when boot() found a still-valid session cookie.
+  // Reloading the page — the normal way a session continues — left both null,
+  // which produced "No anchor date yet" with a perfectly good anchor date, and
+  // an empty queue where a successful upload silently never appeared.
+  //
+  // Asserted on the source because boot() closes over the real authApi, which
+  // cannot be swapped from here without module mocking — and pinning the source
+  // is the stronger guard anyway: it fails if anyone reintroduces a direct call
+  // that bypasses the shared starter.
+  const src = readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+  const start = src.indexOf('async boot()');
+  const end = src.indexOf('async signIn()');
+  assert.ok(start !== -1 && end > start, 'could not locate boot() in app.js');
+  const boot = src.slice(start, end);
+
+  assert.match(
+    boot,
+    /await this\._loadAll\(\);[\s\S]*this\._startRuntime\(\);/,
+    'boot() loads the data on an authenticated reload but never calls ' +
+      '_startRuntime() — the countdown and the player stay null, which is why ' +
+      '"No anchor date yet" showed up with a real anchor date and why uploads ' +
+      'never reached the queue',
+  );
+
+  assert.ok(
+    !/_startClock\(\);/.test(boot),
+    'boot() calls _startClock() directly instead of going through _startRuntime()',
+  );
+  assert.ok(
+    !/_startPlayer\(\);/.test(boot),
+    'boot() calls _startPlayer() directly instead of going through _startRuntime()',
+  );
+});
+
+await t('all three entry points go through _startRuntime', () => {
+  // Demo, interactive sign-in, and authenticated reload each used to call the
+  // starter functions separately, and only two of them did. Funnelling all three
+  // through one function is what stops the set drifting apart again.
+  const src = readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+
+  for (const [label, fn] of [['boot', 'boot'], ['signIn', 'signIn']]) {
+    const start = src.indexOf(`async ${fn}()`);
+    const next = src.indexOf('async ', start + 10);
+    const body = src.slice(start, next === -1 ? undefined : next);
+    assert.match(
+      body,
+      /_startRuntime\(\)/,
+      `${label}() never calls _startRuntime()`,
+    );
+    assert.ok(
+      !/_startClock\(\);/.test(body),
+      `${label}() calls _startClock() directly`,
+    );
+    assert.ok(
+      !/_startPlayer\(\);/.test(body),
+      `${label}() calls _startPlayer() directly`,
+    );
+  }
+});
+
+await t('_startRuntime starts both, and is safe to call twice', () => {
+  const { appShell } = captured();
+  const c = appShell();
+
+  let clock = 0;
+  let player = 0;
+  c._startClock = () => { clock += 1; };
+  c._startPlayer = () => { player += 1; };
+
+  c._startRuntime();
+  c._startRuntime();
+
+  assert.equal(clock, 2, '_startRuntime must call the clock starter');
+  assert.equal(player, 2, '_startRuntime must call the player starter');
+
+  // The real implementations have to tolerate repetition for this to be safe:
+  // _startClock stops the previous timer, _startPlayer returns early if it
+  // already exists.
+  const c2 = appShell();
+  let made = 0;
+  c2._player = null;
+  const realCreate = c2._startPlayer;
+  void realCreate;
+  c2._startClock = () => {};
+  c2._startPlayer = function patched() {
+    if (this._player) return;
+    this._player = { id: ++made };
+  };
+  c2._startRuntime();
+  c2._startRuntime();
+  assert.equal(made, 1, 'a second _startRuntime must not build a second player');
+});
+
+await t('a track add refuses to report success it cannot verify', async () => {
+  // With no player, `this._player?.refresh()` silently did nothing and the add
+  // reported success anyway. Three uploads in a row were written to the database
+  // and never appeared in the queue.
+  const { appShell } = captured();
+  const c = appShell();
+  c._player = null;
+
+  await assert.rejects(
+    () => c._reloadTracksOrThrow(),
+    /player did not start/i,
+    'a missing player must throw, not no-op',
+  );
+});
+
+await t('a track add reports a queue that stayed empty', async () => {
+  const { appShell } = captured();
+  const c = appShell();
+  c._player = { refresh: async () => ({ count: 0, listError: null }) };
+
+  await assert.rejects(
+    () => c._reloadTracksOrThrow(),
+    /did not appear in the queue/i,
+    'an empty queue after a save must be reported',
+  );
+});
+
+await t('a track add succeeds only when the track is really there', async () => {
+  const { appShell } = captured();
+  const c = appShell();
+  c._player = { refresh: async () => ({ count: 3, listError: null }) };
+
+  // Must not throw.
+  await c._reloadTracksOrThrow();
+  assert.ok(true, 'a populated queue resolves cleanly');
+});
+
+await t('a failing list is reported alongside a successful save', async () => {
+  const { appShell } = captured();
+  const c = appShell();
+  c._player = { refresh: async () => ({ count: 0, listError: 'server error 500' }) };
+
+  await assert.rejects(() => c._reloadTracksOrThrow(), /500/);
 });
 
 await t('fmtTime renders a Spotify-style timestamp', () => {

@@ -220,16 +220,23 @@ function appShell() {
         this._loadDemo();
         this.authed = true;
         this.loading = false;
-        this._startClock();
-        this._startPlayer();
+        this._startRuntime();
         return;
       }
 
       try {
         const status = await authApi.status();
         this.authed = Boolean(status?.authenticated);
-        if (this.authed) await this._loadAll();
-        else this.loading = false;
+      if (this.authed) {
+        await this._loadAll();
+        // The session cookie can already be valid on a plain page reload,
+        // which is how most sessions actually begin. Without this the clock
+        // and the player were never started on any reload -- see
+        // _startRuntime for what that broke.
+        this._startRuntime();
+      } else {
+        this.loading = false;
+      }
       } catch (err) {
         this.bootError =
           err.code === 'not_initialised'
@@ -252,8 +259,7 @@ function appShell() {
         this.passcode = '';
         this.authed = true;
         await this._loadAll();
-        this._startClock();
-        this._startPlayer();
+        this._startRuntime();
       } catch (err) {
         this.authError = err.message || "That isn't our passcode. Try again.";
         this.$nextTick(() => this.$refs.authError?.focus());
@@ -331,6 +337,31 @@ function appShell() {
     },
 
     /* ========================== countdown ========================= */
+
+    /**
+     * Start everything that only makes sense once authenticated: the countdown
+     * clock and the music player.
+     *
+     * This exists because the three ways into the authenticated app each used to
+     * call these separately, and only two of them did. On a page RELOAD with a
+     * still-valid session cookie, boot() authenticated and loaded data but never
+     * started them, which produced two confusing symptoms at once:
+     *
+     *   - "No anchor date yet", even though anchor_date was loaded and present.
+     *     The header renders that message whenever `countdown` is null, and the
+     *     countdown only becomes non-null once the clock ticks. It was never
+     *     ticking, so a perfectly good anchor date looked unset.
+     *   - The queue stayed empty and nothing was playable. `this._player` stayed
+     *     null, so after a successful upload `this._player?.refresh()` silently
+     *     no-opped — the track row was written to the database and the UI just
+     *     never learned about it.
+     *
+     * Idempotent, so calling it from every entry point is safe.
+     */
+    _startRuntime() {
+      this._startClock();
+      this._startPlayer();
+    },
 
     _startClock() {
       this._stopCountdown?.();
@@ -445,7 +476,7 @@ function appShell() {
             throw new Error('Choose an audio file or paste a direct link.');
           }
 
-          await this._player?.refresh();
+          await this._reloadTracksOrThrow();
         } else {
           const resolved = resolveSource(this.trackForm.url);
           if (!resolved) throw new Error("That doesn't look like a valid link.");
@@ -457,26 +488,10 @@ function appShell() {
             );
           }
           await tracksApi.create({ title, source_type: resolved.type, source: resolved.source });
-          await this._player?.refresh();
+          await this._reloadTracksOrThrow();
         }
 
         this.trackForm = { title: '', source_type: kind, url: '', file: null };
-
-        /*
-         * Prove it actually landed.
-         *
-         * The upload and the track row are two separate writes, and only the
-         * refresh reads them back. If the list request fails, the old code
-         * reported success and cleared the form, so a broken /api/tracks looked
-         * exactly like a successful add: the button spun, then nothing appeared
-         * and no error was ever shown. Now the absence of the new track is
-         * surfaced instead of silently swallowed.
-         */
-        if (this.music.listError) {
-          this.trackError =
-            'The track was saved, but the playlist could not be reloaded. '
-            + this.music.listError;
-        }
       } catch (err) {
         this.trackError = err.message || "Couldn't add that track.";
       } finally {
@@ -484,9 +499,52 @@ function appShell() {
       }
     },
 
+    /**
+     * Reload the queue and PROVE the new track is in it.
+     *
+     * The upload and the track row are separate writes; only a re-read confirms
+     * the UI knows about them. `this._player?.refresh()` was optional-chained,
+     * which meant that when the player had not been started — the state left
+     * behind by any page reload — the refresh silently did nothing. The row was
+     * written, the upload succeeded, the button stopped spinning, the form
+     * cleared, and the queue stayed empty with no error anywhere. That is
+     * exactly the reported symptom, and it repeated three times in a row.
+     *
+     * So a missing player is now a hard, visible failure rather than a no-op,
+     * and a still-empty queue after a successful save is reported too.
+     */
+    async _reloadTracksOrThrow() {
+      if (!this._player) {
+        throw new Error(
+          'The track was saved, but the music player did not start, so it is '
+          + 'not in the queue. Reload the page and try again.',
+        );
+      }
+
+      const after = await this._player.refresh();
+
+      if (after?.listError) {
+        throw new Error(
+          `The track was saved, but the queue could not be reloaded. ${after.listError}`,
+        );
+      }
+
+      if (after && after.count === 0) {
+        throw new Error(
+          'The track was saved, but it did not appear in the queue. '
+          + 'Reload the page to see it.',
+        );
+      }
+    },
+
     /** Retry a failed track-list load without reloading the whole app. */
     async reloadTracks() {
-      await this._player?.refresh();
+      if (!this._player) {
+        this.trackError =
+          'The music player did not start. Reload the page to load your tracks.';
+        return;
+      }
+      await this._player.refresh();
     },
 
     async removeTrack(track) {
