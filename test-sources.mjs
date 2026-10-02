@@ -1,5 +1,5 @@
 /**
- * Source-resolution tests — the YouTube / Spotify / direct-audio matrix.
+ * Source-resolution tests â€” the YouTube / Spotify / direct-audio matrix.
  * Run with: node test.mjs
  */
 
@@ -12,7 +12,7 @@ import {
   youtubeEmbedUrl,
   isPlayableInPage,
   supportsVisualizer,
-} from './js/sources.js';
+} from './public/js/sources.js';
 
 let passed = 0;
 const t = (name, fn) => {
@@ -26,9 +26,9 @@ const t = (name, fn) => {
   }
 };
 
-const ID = 'dQw4w9WgXcQ'; // 11 chars — the canonical fixture
+const ID = 'dQw4w9WgXcQ'; // 11 chars â€” the canonical fixture
 
-console.log('\nsources — YouTube id extraction');
+console.log('\nsources â€” YouTube id extraction');
 
 t('bare video id', () => {
   assert.equal(parseYouTubeId(ID), ID);
@@ -82,7 +82,7 @@ t('rejects empty input', () => {
   assert.equal(parseYouTubeId('   '), null);
 });
 
-console.log('\nsources — Spotify');
+console.log('\nsources â€” Spotify');
 
 t('track link', () => {
   const r = parseSpotify('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT');
@@ -114,7 +114,7 @@ t('rejects an id of the wrong length', () => {
   assert.equal(parseSpotify('https://open.spotify.com/track/short'), null);
 });
 
-console.log('\nsources — resolveSource classification');
+console.log('\nsources â€” resolveSource classification');
 
 t('YouTube url resolves to a youtube source', () => {
   const r = resolveSource(`https://youtu.be/${ID}`);
@@ -158,7 +158,7 @@ t('a non-audio page URL is rejected', () => {
   assert.equal(resolveSource('https://example.com/about-us'), null);
 });
 
-console.log('\nsources — playback capability');
+console.log('\nsources â€” playback capability');
 
 t('capability matrix', () => {
   assert.equal(isPlayableInPage('file'), true);
@@ -169,7 +169,7 @@ t('capability matrix', () => {
   assert.equal(supportsVisualizer('spotify'), false);
 });
 
-console.log('\nsources — generated urls');
+console.log('\nsources â€” generated urls');
 
 t('spotify open url round-trips', () => {
   const r = parseSpotify('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT?si=x');

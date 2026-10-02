@@ -2,11 +2,11 @@
 # Node
 node_modules/
 
-# NOTE: css/app.css is intentionally COMMITTED.
+# NOTE: public/css/app.css is intentionally COMMITTED.
 #
 # Vercel has no build step for this project, so the compiled stylesheet must
-# live in the repo. Run `npm run build:css` and commit the result whenever you
-# edit src/input.css or add/remove classes in the HTML.
+# live in the served directory. Run `npm run build:css` and commit the result
+# whenever you edit src/input.css or add/remove classes in the HTML.
 # `npm run css:check` fails if it is stale.
 
 # Secrets

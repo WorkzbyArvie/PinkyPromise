@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 
 /* ------------------------------------------------------------------ *
- * Minimal DOM stub â€” enough for module evaluation, not for a real render.
+ * Minimal DOM stub Ã¢â‚¬â€ enough for module evaluation, not for a real render.
  * ------------------------------------------------------------------ */
 const listeners = new Map();
 
@@ -119,11 +119,11 @@ const t = async (name, fn) => {
 console.log('\nboot sequence');
 
 // Load Alpine first, wrap data(), then let app.js import it.
-const { default: Alpine } = await import('../js/vendor/alpine.esm.js');
+const { default: Alpine } = await import('../public/js/vendor/alpine.esm.js');
 captureRegistrations(Alpine);
 
 await t('app.js evaluates without throwing', async () => {
-  await import('../js/app.js');
+  await import('../public/js/app.js');
 });
 
 await t('window.Alpine exists after import', () => {
@@ -138,13 +138,13 @@ await t('Alpine.start() was called, and after registration', () => {
   assert.ok(globalThis.window.__startCalled, 'Alpine.start() was never called');
   assert.ok(
     globalThis.window.__startCalledAfterRegistration,
-    'Alpine.start() ran BEFORE the component was registered — this is the ' +
+    'Alpine.start() ran BEFORE the component was registered â€” this is the ' +
       'original bug and it would fail every x-data expression',
   );
 });
 
 /**
- * Alpine.data() is a REGISTRATION call â€” it returns undefined, so it cannot
+ * Alpine.data() is a REGISTRATION call Ã¢â‚¬â€ it returns undefined, so it cannot
  * be used to read a component back.
  *
  * Instead, observe the registration: wrap Alpine.data, run app.js's boot, and
@@ -158,7 +158,7 @@ await t('Alpine.start() was called, and after registration', () => {
 //   1. `globalThis` is replaced by the DOM stub above, so anything attached
 //      to the real globalThis is invisible to the code under test.
 //   2. app.js is imported *dynamically* below, which interleaves with this
-//      module's own top-level evaluation â€” a module-level `const` would still
+//      module's own top-level evaluation Ã¢â‚¬â€ a module-level `const` would still
 //      be in its temporal dead zone when the wrapper fires.
 /**
  * Registrations captured off Alpine.data().
@@ -231,7 +231,7 @@ await t('icon() renders an svg string', () => {
 
 await t('the vendored Alpine build does not auto-start on import', () => {
   // The whole fix rests on this. If a future vendored build auto-starts,
-  // registration races and the original 145-error bug returns â€” so assert the
+  // registration races and the original 145-error bug returns Ã¢â‚¬â€ so assert the
   // ESM build stays auto-start-free.
   const fresh = new WeakMap();
   assert.ok(fresh, 'sanity');

@@ -12,8 +12,12 @@
 .env.*
 !.env.example
 
+# NOTE: public/ MUST NOT be excluded.
+# It is the directory Vercel serves (outputDirectory in vercel.json). Excluding
+# it produces a deployment that builds successfully and then 404s every path.
+
 # Build tooling — nothing here runs on Vercel, and there is no build step.
-# (Tailwind runs locally; css/app.css is committed.)
+# (Tailwind runs locally; public/css/app.css is committed.)
 node_modules/
 
 # Git / editor

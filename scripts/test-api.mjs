@@ -1,11 +1,18 @@
 // ---------------------------------------------------------------------------
 // End-to-end API test against a live PHP server.
 //
-//   php -S 127.0.0.1:8000 router.php   (in another shell)
+//   php -S 127.0.0.1:8000 -t public router.php   (in another shell)
 //   node scripts/test-api.mjs
 //
-// Exercises the real auth flow, every endpoint, and the rejection paths.
-// Sets a throwaway passcode the first time it runs; later runs reuse it.
+// Covers the real auth flow, every endpoint, and the rejection paths.
+//
+// SAFETY — this test used to set its own passcode, which silently overwrote
+// the real one. If a passcode already exists, bootstrap returns 409 and the
+// test now FAILS LOUDLY instead of continuing with credentials that no longer
+// work. To run it against a fresh database, clear the passcode first:
+//
+//   node scripts/reset-passcode.mjs
+//
 // ---------------------------------------------------------------------------
 
 const BASE = process.env.TEST_BASE || 'http://127.0.0.1:8000';
@@ -15,7 +22,7 @@ const BASE = process.env.TEST_BASE || 'http://127.0.0.1:8000';
 await (await import('./db.mjs')).loadEnv();
 
 const SETUP_TOKEN = process.env.APP_SETUP_TOKEN ?? '';
-const TEST_PASSCODE = 'rmb-test-9142';
+const TEST_PASSCODE = process.env.TEST_PASSCODE ?? 'rmb-test-9142';
 
 let pass = 0;
 let fail = 0;
@@ -119,12 +126,22 @@ async function main() {
       headers: { 'x-setup-token': SETUP_TOKEN },
       body: { passcode: TEST_PASSCODE, anchor_date: '2024-02-14' },
     });
-    // 201 on first run, 409 if it was already bootstrapped.
-    check(
-      r.status === 201 || r.status === 409,
-      'bootstrap succeeds or is already done',
-      `got ${r.status}: ${r.text.slice(0, 160)}`,
-    );
+
+    if (r.status === 409) {
+      // A real passcode is already set. Continuing would test with credentials
+      // that no longer work and bury the reason in a later failure.
+      console.error(
+        '\n  ABORTED: a passcode is already set for this app.\n' +
+        '  This test cannot replace it, and running on would fail obscurely.\n' +
+        '  If you intend to use this database, set TEST_PASSCODE via env:\n' +
+        '    $env:TEST_PASSCODE="your-passcode"; node scripts/test-api.mjs\n' +
+        '  Or reset it first:\n' +
+        '    node scripts/reset-passcode.mjs\n',
+      );
+      process.exit(1);
+    }
+
+    check(r.status === 201, 'bootstrap created the passcode', `got ${r.status}: ${r.text.slice(0, 160)}`);
     if (r.status === 201) ok('passcode set, and a session was issued');
   }
 

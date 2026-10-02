@@ -4,7 +4,15 @@ declare(strict_types=1);
 /**
  * Local development front controller.
  *
- *   php -S localhost:8000 router.php
+ *   php -S 127.0.0.1:8000 -t public router.php
+ *
+ * The `-t public` is REQUIRED, not cosmetic. PHP's built-in server resolves a
+ * router script's `return false` against its document root. Without -t, the
+ * docroot is the repo root, `return false` looks for webapp/css/app.css
+ * (which moved into public/), the file is not found, and every static request
+ * falls through to the HTML shell below — so /css/app.css serves HTML and the
+ * page renders unstyled. This mirrors Vercel, where public/ is the
+ * outputDirectory.
  *
  * Mimics the Vercel routing rules so the app behaves the same locally:
  *
@@ -16,7 +24,10 @@ declare(strict_types=1);
  * NOT deployed — .vercelignore excludes it.
  */
 
+// Resolved against __DIR__, not getcwd(), so the script works regardless of
+// where the server was launched from.
 $root = __DIR__;
+
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $path = rawurldecode($path);
 
@@ -55,20 +66,9 @@ if (str_starts_with($path, '/api/')) {
 
 // ---------------------------------------------------------------------------
 // Static files
+//
+// Returning false hands the request back to the built-in server, which resolves
+// it against the document root. That is why the server must be started with
+// -t public (see the note at the top of this file).
 // ---------------------------------------------------------------------------
-$candidate = realpath($root . $path);
-
-if ($candidate !== false && is_file($candidate) && str_starts_with($candidate, $root)) {
-    // Returning false tells the built-in server to serve the file itself,
-    // which is faster than re-reading it in PHP.
-    return false;
-}
-
-// Directory request -> index.html
-if (is_dir($candidate) && is_file($candidate . '/index.html')) {
-    return false;
-}
-
-// Unknown path -> the app shell, so client routing can handle it.
-readfile($root . '/index.html');
-return true;
+return false;

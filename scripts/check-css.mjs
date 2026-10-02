@@ -20,13 +20,13 @@ import { createHash } from 'node:crypto';
 
 const exec = promisify(execFile);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(root, 'css', 'app.css');
-const TMP = join(root, 'css', '.app.css.verify');
+const OUT = join(root, 'public', 'css', 'app.css');
+const TMP = join(root, 'public', 'css', '.app.css.verify');
 
 /**
  * Run the Tailwind CLI via its JS entry point rather than the `tailwindcss`
  * shim. The shim is a `.cmd` on Windows, and execFile cannot spawn a `.cmd`
- * without a shell — which fails with `spawn EINVAL`. Running the module with
+ * without a shell â€” which fails with `spawn EINVAL`. Running the module with
  * the current Node binary works identically on every platform.
  */
 async function runTailwind(outPath) {
@@ -45,7 +45,7 @@ async function main() {
   try {
     before = await readFile(OUT);
   } catch {
-    console.error('css/app.css is missing. Run: npm run build:css');
+    console.error('public/css/app.css is missing. Run: npm run build:css');
     process.exit(1);
   }
 
@@ -73,10 +73,10 @@ async function main() {
     return;
   }
 
-  console.error('css/app.css is STALE.');
+  console.error('public/css/app.css is STALE.');
   console.error(`  committed: ${hash(before)}`);
   console.error(`  rebuilt:   ${hash(rebuilt)}`);
-  console.error('  fix: npm run build:css && git add css/app.css');
+  console.error('  fix: npm run build:css && git add public/css/app.css');
   process.exit(1);
 }
 

@@ -1,5 +1,5 @@
 /**
- * Logic smoke tests — the parts most likely to be subtly wrong.
+ * Logic smoke tests â€” the parts most likely to be subtly wrong.
  * Run with: node test.mjs
  */
 
@@ -10,7 +10,7 @@ import {
   completedMonths,
   elapsed,
   nextMilestone,
-} from './js/countdown.js';
+} from './public/js/countdown.js';
 import {
   buildMonthGrid,
   gridStart,
@@ -18,9 +18,9 @@ import {
   ymd,
   parseYmd,
   WEEKDAY_LABELS,
-} from './js/calendar.js';
-import { createJar } from './js/jar.js';
-import { validateCard } from './js/admin.js';
+} from './public/js/calendar.js';
+import { createJar } from './public/js/jar.js';
+import { validateCard } from './public/js/admin.js';
 
 let passed = 0;
 const t = (name, fn) => {
@@ -34,7 +34,7 @@ const t = (name, fn) => {
   }
 };
 
-console.log('\ncountdown — date math');
+console.log('\ncountdown â€” date math');
 
 t('parseAnchor reads YYYY-MM-DD as a LOCAL date', () => {
   const d = parseAnchor('2024-02-14');
@@ -124,7 +124,7 @@ t('nextMilestone on the anchor day points at the 1st monthsary', () => {
 
 t('on a month mark, the next milestone is the FOLLOWING month', () => {
   // 14 Feb -> 14 Mar means the March mark has just arrived, so the next
-  // monthsary is 14 Apr — 31 days away, not 0.
+  // monthsary is 14 Apr â€” 31 days away, not 0.
   const n = nextMilestone(new Date(2024, 1, 14), new Date(2024, 2, 14, 0, 30));
   assert.equal(n.label, 'Monthsary');
   assert.equal(ymd(n.target), '2024-04-14');
@@ -141,7 +141,7 @@ t('mid-year points at the monthsary still ahead this month', () => {
 });
 
 t('just after a month mark, points at the next one a month out', () => {
-  // 15 June 2025 — the June mark has passed, so July is next.
+  // 15 June 2025 â€” the June mark has passed, so July is next.
   const n = nextMilestone(new Date(2024, 1, 14), new Date(2025, 5, 15));
   assert.equal(ymd(n.target), '2025-07-14');
   assert.equal(n.days, 29);
@@ -169,7 +169,7 @@ t('nextMilestone never returns a past date', () => {
   }
 });
 
-console.log('\ncalendar — grid');
+console.log('\ncalendar â€” grid');
 
 t('gridStart lands on a Sunday', () => {
   assert.equal(gridStart(2024, 1).getDay(), 0);
@@ -246,7 +246,7 @@ t('ymd and parseYmd round-trip', () => {
   }
 });
 
-console.log('\njar — shuffle bag');
+console.log('\njar â€” shuffle bag');
 
 t('draw yields the full set with no repeats before reshuffling', () => {
   const jar = createJar();
@@ -274,7 +274,7 @@ t('bag count decrements and reshuffles when empty', () => {
   assert.equal(jar.peekCount(), jar.count - 1, 'reshuffled after exhausting');
 });
 
-console.log('\nadmin — validation');
+console.log('\nadmin â€” validation');
 
 t('accepts a complete card', () => {
   const r = validateCard({ title: 'Hi', letter_text: 'There', memory_date: '' });
