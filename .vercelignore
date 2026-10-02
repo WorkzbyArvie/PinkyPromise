@@ -12,11 +12,9 @@
 .env.*
 !.env.example
 
-# Build tooling — re-installed by Vercel
+# Build tooling — nothing here runs on Vercel, and there is no build step.
+# (Tailwind runs locally; css/app.css is committed.)
 node_modules/
-
-# Generated CSS is rebuilt by buildCommand on every deploy
-css/app.css
 
 # Git / editor
 .git/

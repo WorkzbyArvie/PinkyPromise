@@ -72,6 +72,32 @@ node scripts/verify-rls.mjs   # prove the anon key cannot reach your data
 
 6. Set the same variables in Vercel, then `vercel deploy`.
 
+### Why there is no Vercel build step
+
+The first deploy failed with:
+
+```
+Error: No Output Directory named "public" found after the Build completed.
+```
+
+Setting `buildCommand` makes Vercel run a build and then look for conventional
+output directories (`public`, `dist`, `build`). This project serves static files
+from the **repo root** instead, so it found nothing and failed.
+
+Rather than move every file into `public/`, the build step is gone and
+**`css/app.css` is committed**. Vercel then uploads the tree as-is — no build,
+no output-directory check, one fewer failure mode.
+
+Because the stylesheet is generated but version-controlled, it can go stale:
+
+```bash
+npm run build:css   # after editing src/input.css or template classes
+npm run css:check   # fails if css/app.css doesn't match a fresh build
+npm run verify      # css:check + unit tests
+```
+
+Run `npm run css:check` before pushing.
+
 ### Database connection: use port 6543
 
 Supabase's dashboard shows `5432` by default — that's **session mode**. Every
@@ -233,14 +259,4 @@ session cookie.
 - `passcode_hash` is never returned by `/api/settings`, and is not writable.
 - CSP is set in `lib/bootstrap.php`; `api/php.ini` sets
   `disable_functions` for anything that could shell out.
-
-## Security notes
-
-- Every SQL call uses PDO prepared statements.
-- Uploads stream `php://input` straight to storage — **no** `move_uploaded_file`,
-  nothing written to the (read-only) local filesystem. Vercel's fs is ephemeral.
-- Upload paths are random hex; user filenames never reach the storage path.
-- The passcode is a bcrypt hash in Postgres and never reaches the browser. The
-  session is an HMAC-signed httpOnly cookie, so state is stateless across
-  instances.
 - Every user-authored string is escaped before it reaches `innerHTML`.
