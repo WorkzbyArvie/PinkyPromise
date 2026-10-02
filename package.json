@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Interactive relationship & reconciliation web app Ã¢â‚¬â€ memory photocards, anniversary calendar, heart decks.",
+  "description": "Interactive relationship & reconciliation web app ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â memory photocards, anniversary calendar, heart decks.",
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./public/css/app.css --minify",
     "dev:css": "tailwindcss -i ./src/input.css -o ./public/css/app.css --watch",
@@ -16,6 +16,7 @@
     "db:status": "node scripts/status.mjs",
     "db:verify": "node scripts/verify-rls.mjs",
     "db:reset-passcode": "node scripts/reset-passcode.mjs",
+    "db:set-anchor": "node scripts/set-anchor.mjs",
     "test": "node test.mjs && node test-sources.mjs",
     "test:api": "node scripts/test-api.mjs",
     "test:boot": "node scripts/test-boot.mjs",

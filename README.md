@@ -244,6 +244,19 @@ $env:TEST_PASSCODE="your-passcode"; npm run test:api
 `npm run test:routing` asserts every static asset is served with its real
 content type, which is the check that catches a mis-set document root.
 
+### Settings
+
+The passcode and the countdown anchor date live in the database, not in code:
+
+```bash
+npm run db:reset-passcode        # clear the passcode, then re-run /api/auth-bootstrap
+npm run db:set-anchor 2023-04-27
+npm run db:status                 # row counts, decks, current settings
+```
+
+Both can also be changed from the app's Settings panel while signed in, except
+that *clearing* the passcode needs the database console.
+
 ## API
 
 All endpoints return `{ ok, data }` or `{ ok: false, error: { code, message, fields? } }`.
