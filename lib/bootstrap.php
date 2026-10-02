@@ -96,15 +96,16 @@ if (!headers_sent()) {
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: same-origin');
     header('X-Frame-Options: SAMEORIGIN');
-    // No inline event handlers are used; the only inline script is the JSON
-    // bootstrap-free Alpine bundle, so a strict policy is safe here.
+    // No inline event handlers are used. Alpine and Cropper are vendored
+    // locally, so scripts are same-origin only. 'unsafe-inline' is required
+    // for Alpine's x-* attribute evaluation.
     header(
         "Content-Security-Policy: default-src 'self'; "
         . "img-src 'self' data: blob: https:; "
         . "media-src 'self' blob: data: https:; "
         . "font-src 'self' https://fonts.gstatic.com; "
         . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        . "script-src 'self' https://cdn.jsdelivr.net; "
+        . "script-src 'self' 'unsafe-inline'; "
         . "connect-src 'self' https://*.supabase.co; "
         . "frame-src https://www.youtube-nocookie.com https://www.youtube.com; "
         . "base-uri 'self'; form-action 'self'; frame-ancestors 'self'"

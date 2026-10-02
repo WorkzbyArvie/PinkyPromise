@@ -5,8 +5,22 @@
  *   • live  → the PHP API in /api (needs a valid session cookie)
  *   • demo  → js/demo.js, activated only with `?demo=1`, so the UI can be
  *             reviewed before Supabase + PHP are configured
+ *
+ * WHY ALPINE IS IMPORTED AND STARTED HERE, NOT FROM A <script> TAG
+ *
+ * The CDN build of Alpine calls start() itself. Loading it from a <script>
+ * tag makes registration order a race: if Alpine starts before this module
+ * has run, the `alpine:init` event has already fired, Alpine.data() is never
+ * registered, and every x-data expression fails with
+ * "appShell is not defined".
+ *
+ * That is exactly what happened on the first deploy. The ESM build does NOT
+ * auto-start, so importing it here and calling Alpine.start() ourselves makes
+ * the order deterministic: register first, then start. It is also vendored,
+ * so there is no runtime CDN dependency.
  */
 
+import Alpine from './vendor/alpine.esm.js';
 import { authApi, cardsApi, calendarApi, decksApi, settingsApi, tracksApi, uploadApi } from './api.js';
 import { icon, EVENT_EMOJI, EVENT_LABEL, DECK_META } from './icons.js';
 import { parseAnchor, startCountdown } from './countdown.js';
@@ -692,31 +706,62 @@ function appShell() {
 
 /* ------------------------------------------------------------------ *
  * Boot
+ *
+ * Registration is unconditional — we own the start order, so there is no
+ * event to miss. If anything in this module throws, Alpine must NOT start:
+ * a half-initialised tree produces hundreds of confusing expression errors
+ * instead of one honest message.
  * ------------------------------------------------------------------ */
 
-document.addEventListener('alpine:init', () => {
-  window.Alpine.data('appShell', () => {
-    const s = appShell();
-    // Deck tab metadata is static — build it once per instance.
-    s.deckTabs = categories().map((id) => ({ id, ...DECK_META[id] }));
-    return s;
-  });
-});
+window.Alpine = Alpine;
 
-/* A lapsed session anywhere in the app returns us to the lock screen. The
-   401 handler in api.js fires `auth:expired`; the shell reacts by dropping
-   the authenticated UI. */
-window.addEventListener('auth:expired', () => {
-  const el = document.querySelector('[x-data]');
-  if (!el || !window.Alpine) return;
-  const data = window.Alpine.$data(el);
-  if (!data || data.demoMode) return;
-  data._typer?.cancel();
-  data._stopCountdown?.();
-  data._player?.destroy();
-  data.countdown = null;
-  data.authed = false;
-  document.body.style.overflow = '';
-});
+try {
+  Alpine.data('appShell', () => {
+    const shell = appShell();
+    // Deck tab metadata is static — build it once per instance.
+    shell.deckTabs = categories().map((id) => ({ id, ...DECK_META[id] }));
+    return shell;
+  });
+
+  // A lapsed session anywhere in the app returns us to the lock screen. The
+  // 401 handler in api.js fires `auth:expired`.
+  window.addEventListener('auth:expired', () => {
+    const el = document.querySelector('[x-data]');
+    if (!el) return;
+    const data = Alpine.$data(el);
+    if (!data || data.demoMode) return;
+    data._typer?.cancel();
+    data._stopCountdown?.();
+    data._player?.destroy();
+    data.countdown = null;
+    data.authed = false;
+    document.body.style.overflow = '';
+  });
+
+  Alpine.start();
+} catch (err) {
+  showFatal(err);
+}
+
+/** Replace the page with one honest error instead of a wall of console noise. */
+function showFatal(err) {
+  const message = err?.message || String(err);
+  console.error('[pinky-promise] startup failed:', err);
+
+  document.body.innerHTML = `
+    <div class="grid min-h-dvh place-items-center bg-blush p-6">
+      <div class="glass-strong max-w-md rounded-card p-8 text-center">
+        <h1 class="text-heading text-ink-strong">The app couldn't start</h1>
+        <p class="mt-2 text-body text-ink-muted">
+          This is a code problem, not a data problem — nothing has been lost.
+        </p>
+        <pre class="mt-4 overflow-auto rounded-input bg-white/60 p-3 text-left text-xs text-destructive">${String(message).replace(/[<>&]/g, '')}</pre>
+        <button onclick="location.reload()"
+          class="mt-5 min-h-11 rounded-input bg-rose-deep px-5 text-body font-bold text-white">
+          Reload
+        </button>
+      </div>
+    </div>`;
+}
 
 export { appShell };
