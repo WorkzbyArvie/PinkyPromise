@@ -65,6 +65,21 @@ const TRACK_SOURCES = [
   { id: 'spotify', label: 'Spotify', icon: 'external' },
 ];
 
+/*
+ * Calendar event kinds, derived from the server's EVENT_EMOJI/EVENT_LABEL so
+ * the picker, the legend and the day markers can never drift out of sync.
+ *
+ * The ids MUST match the icon_type CHECK constraint in db/001_schema.sql:
+ *   check (icon_type in ('anniversary','monthsary','date','sorry','heart'))
+ * and ICON_TYPES in api/calendar.php. Adding a value here without a migration
+ * would fail at insert time with a constraint violation.
+ */
+const EVENT_TYPES = Object.keys(EVENT_EMOJI).map((id) => ({
+  id,
+  label: EVENT_LABEL[id],
+  emoji: EVENT_EMOJI[id],
+}));
+
 function appShell() {
   return {
     /* ============================ auth ============================ */
@@ -136,6 +151,25 @@ function appShell() {
     cropBusy: false,
     saveBusy: false,
 
+    /* settings */
+    settingsOpen: false,
+    settingsBusy: false,
+    settingsError: null,
+    settingsForm: { anchor_date: '', site_title: '', partner_names: '', music_volume: 1 },
+    settingsErrors: {},
+    passcodeForm: { current: '', next: '', confirm: '' },
+    passcodeBusy: false,
+    passcodeError: null,
+
+    /* calendar event editor */
+    eventEdit: {
+      open: false, id: null, event_date: '', title: '',
+      description: '', icon_type: 'date', errors: {},
+    },
+    eventBusy: false,
+    eventError: null,
+    eventTypes: EVENT_TYPES,
+
     /* internal */
     _jar: null,
     _player: null,
@@ -143,6 +177,7 @@ function appShell() {
     _typer: null,
     _stopCountdown: null,
     _existingCard: null,
+    _headerObserver: null,
 
     /* ======================== lifecycle =========================== */
 
@@ -150,6 +185,7 @@ function appShell() {
       this.bootError = null;
       this._makeHearts();
       this._jar = createJar();
+      this._watchHeader();
 
       if (this.demoMode) {
         this._loadDemo();
@@ -200,10 +236,15 @@ function appShell() {
     async signOut() {
       this.closeViewer();
       this.closeAdmin();
+      this.closeSettings();
+      this.closeEventEdit();
+      this.closeDeckEdit();
       this._stopCountdown?.();
       this._stopCountdown = null;
       this._player?.destroy();
       this._player = null;
+      this._headerObserver?.disconnect();
+      this._headerObserver = null;
       this.countdown = null;
       this.music = {
         ready: false, playing: false, track: null, index: 0, volume: 1, muted: false,
@@ -548,6 +589,261 @@ function appShell() {
 
     openDay(cell) {
       this.dayCell = cell;
+    },
+
+    /**
+     * Keep the tab bar's sticky offset equal to the header's real height.
+     *
+     * The header is not a fixed size: the countdown block appears and
+     * disappears, and the title row wraps on narrow screens. A hardcoded offset
+     * left the tab strip either floating in a gap or overlapping the header,
+     * and content scrolled between the two.
+     */
+    syncHeaderOffset() {
+      const header = this.$refs.appHeader;
+      if (!header) return;
+      const h = Math.ceil(header.getBoundingClientRect().height);
+      if (h > 0) {
+        document.documentElement.style.setProperty('--header-h', `${h}px`);
+      }
+    },
+
+    _watchHeader() {
+      if (this._headerObserver || typeof ResizeObserver === 'undefined') {
+        this.syncHeaderOffset();
+        return;
+      }
+      this._headerObserver = new ResizeObserver(() => this.syncHeaderOffset());
+      this._headerObserver.observe(this.$refs.appHeader);
+      this.syncHeaderOffset();
+    },
+
+    /* --------------------- calendar event CRUD --------------------- */
+
+    /** Open the editor to mark `key` (a YYYY-MM-DD date) as a special day. */
+    markDay(key) {
+      this.eventError = null;
+      this.eventEdit = {
+        open: true,
+        id: null,
+        event_date: key,
+        title: '',
+        description: '',
+        icon_type: 'date',
+        errors: {},
+      };
+    },
+
+    editEvent(ev) {
+      this.eventError = null;
+      this.eventEdit = {
+        open: true,
+        id: ev.id,
+        event_date: ev.event_date,
+        title: ev.title,
+        description: ev.description ?? '',
+        icon_type: ev.icon_type,
+        errors: {},
+      };
+    },
+
+    closeEventEdit() {
+      this.eventEdit = {
+        open: false, id: null, event_date: '', title: '',
+        description: '', icon_type: 'date', errors: {},
+      };
+      this.eventError = null;
+    },
+
+    async saveEvent() {
+      const title = (this.eventEdit.title ?? '').trim();
+      const description = (this.eventEdit.description ?? '').trim();
+      const date = this.eventEdit.event_date;
+
+      const errors = {};
+      if (!date) errors.event_date = 'Pick a date.';
+      if (!title) errors.title = 'Give this day a name.';
+      else if (title.length > 255) errors.title = 'Title must be 255 characters or fewer.';
+
+      if (Object.keys(errors).length) {
+        this.eventEdit.errors = errors;
+        return;
+      }
+
+      this.eventBusy = true;
+      this.eventError = null;
+
+      try {
+        const payload = {
+          event_date: date,
+          title,
+          description: description || null,
+          icon_type: this.eventEdit.icon_type,
+        };
+
+        if (this.eventEdit.id) {
+          await calendarApi.update({ id: this.eventEdit.id, ...payload });
+        } else {
+          await calendarApi.create(payload);
+        }
+
+        await this._loadCalendarRange();
+
+        // Keep the open day popover in sync when the edit came from it, so the
+        // marker appears immediately rather than on the next month change.
+        if (this.dayCell) {
+          const cell = this.cells.find((c) => c.key === date);
+          if (cell) this.dayCell = cell;
+        }
+
+        this.closeEventEdit();
+      } catch (err) {
+        this.eventError = err.message || "Couldn't save that day.";
+      } finally {
+        this.eventBusy = false;
+      }
+    },
+
+    async removeEvent(ev) {
+      const ok = window.confirm(`Remove "${ev.title}" from this day?`);
+      if (!ok) return;
+      try {
+        if (this.demoMode) {
+          this.events = this.events.filter((e) => e.id !== ev.id);
+          if (this.dayCell) {
+            this.dayCell = {
+              ...this.dayCell,
+              events: this.dayCell.events.filter((e) => e.id !== ev.id),
+            };
+          }
+        } else {
+          await calendarApi.remove(ev.id);
+          await this._loadCalendarRange();
+          if (this.dayCell) {
+            const cell = this.cells.find((c) => c.key === ev.event_date);
+            if (cell) this.dayCell = cell;
+          }
+        }
+      } catch (err) {
+        window.alert(err.message || "Couldn't remove that day.");
+      }
+    },
+
+    /* ========================== settings ============================ */
+
+    openSettings() {
+      this.settingsError = null;
+      this.passcodeError = null;
+      this.settingsErrors = {};
+      // Copy out of `settings` so cancelling genuinely discards changes —
+      // binding x-model straight to the loaded object would persist a
+      // half-typed title just by opening and closing this modal.
+      this.settingsForm = {
+        anchor_date: this.settings.anchor_date ?? '',
+        site_title: this.settings.site_title ?? '',
+        partner_names: this.settings.partner_names ?? '',
+        music_volume: Number(this.settings.music_volume ?? 1),
+      };
+      this.passcodeForm = { current: '', next: '', confirm: '' };
+      this.settingsOpen = true;
+      document.body.style.overflow = 'hidden';
+    },
+
+    closeSettings() {
+      this.settingsOpen = false;
+      this.settingsError = null;
+      this.passcodeError = null;
+      document.body.style.overflow = '';
+    },
+
+    async saveSettings() {
+      const title = (this.settingsForm.site_title ?? '').trim();
+      const partners = (this.settingsForm.partner_names ?? '').trim();
+
+      const errors = {};
+      if (!title) errors.site_title = 'Give the site a name.';
+      else if (title.length > 120) errors.site_title = 'That name is too long.';
+      if (partners.length > 120) errors.partner_names = 'That name is too long.';
+      if (this.settingsForm.anchor_date && !/^\d{4}-\d{2}-\d{2}$/.test(this.settingsForm.anchor_date)) {
+        errors.anchor_date = 'Use a valid date.';
+      }
+
+      if (Object.keys(errors).length) {
+        this.settingsErrors = errors;
+        return;
+      }
+
+      this.settingsBusy = true;
+      this.settingsError = null;
+
+      try {
+        if (this.demoMode) {
+          this.settings = {
+            ...this.settings,
+            anchor_date: this.settingsForm.anchor_date || null,
+            site_title: title,
+            partner_names: partners,
+            music_volume: Math.round(Number(this.settingsForm.music_volume) * 100) / 100,
+          };
+        } else {
+          const updated = await settingsApi.update({
+            anchor_date: this.settingsForm.anchor_date || null,
+            site_title: title,
+            partner_names: partners,
+            // The server validates music_volume as an int 0..100 and divides by
+            // 100 before storing, while what comes back (and what audio.volume
+            // wants) is a 0..1 fraction. Sending the fraction straight through
+            // would be cast to int 0 and store silence — send percent.
+            music_volume: Math.round(Number(this.settingsForm.music_volume) * 100),
+          });
+          this.settings = { ...this.settings, ...updated };
+        }
+
+        // The countdown reads the anchor through a getter, so restart it or it
+        // keeps ticking against the previous value. _startClock stops the
+        // existing timer itself.
+        this._startClock();
+
+        this._player?.setVolume(Number(this.settingsForm.music_volume));
+
+        this.closeSettings();
+      } catch (err) {
+        this.settingsError = err.message || "Couldn't save your settings.";
+      } finally {
+        this.settingsBusy = false;
+      }
+    },
+
+    async changePasscode() {
+      const { current, next, confirm: again } = this.passcodeForm;
+
+      if (!current) {
+        this.passcodeError = 'Enter the current passcode.';
+        return;
+      }
+      if (String(next).length < 4) {
+        this.passcodeError = 'A new passcode needs at least 4 characters.';
+        return;
+      }
+      if (next !== again) {
+        this.passcodeError = "The two new passcodes don't match.";
+        return;
+      }
+
+      this.passcodeBusy = true;
+      this.passcodeError = null;
+
+      try {
+        await authApi.changePasscode({ current_passcode: current, new_passcode: next });
+        this.passcodeForm = { current: '', next: '', confirm: '' };
+        // Say so plainly: after this the old passcode no longer works and they
+        // need to remember the new one, there is no second copy anywhere.
+        window.alert('Passcode changed. Use the new one next time you open this.');
+      } catch (err) {
+        this.passcodeError = err.message || "Couldn't change the passcode.";
+      } finally {
+        this.passcodeBusy = false;
+      }
     },
 
     /* =========================== decks ============================ */
@@ -970,6 +1266,7 @@ try {
     data._typer?.cancel();
     data._stopCountdown?.();
     data._player?.destroy();
+    data._headerObserver?.disconnect();
     data.countdown = null;
     data.authed = false;
     document.body.style.overflow = '';

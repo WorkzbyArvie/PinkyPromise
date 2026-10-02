@@ -55,6 +55,17 @@ const P = {
   gift: '<rect x="3" y="8.5" width="18" height="4" rx="1"/><path d="M4.5 12.5V20a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-7.5M12 8.5v13"/><path d="M12 8.5S10.5 3 8 3a2.5 2.5 0 0 0 0 5.5M12 8.5S13.5 3 16 3a2.5 2.5 0 0 1 0 5.5"/>',
   bandage: '<path d="M8.5 15.5 15.5 8.5"/><rect x="3.5" y="8.5" width="17" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M12 12h.01"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.2 2"/>',
+
+  // Sliders, for the settings entry point. Distinct from `calendar` at a glance
+  // so the header control does not read as another calendar tab.
+  settings:
+    '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h10M18 18h2"/>' +
+    '<circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/>',
+
+  // A calendar with a plus: "mark this day" in the day popover.
+  markDay:
+    '<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/>' +
+    '<path d="M12 12.5v5M9.5 15h5"/>',
 };
 
 export const ICON_NAMES = Object.keys(P);

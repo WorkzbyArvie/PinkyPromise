@@ -103,6 +103,17 @@ export const authApi = {
   logout: () => api.post('/api/auth/logout', {}),
   bootstrap: (setupToken, payload) =>
     api.post('/api/auth-bootstrap', payload, { headers: { 'x-setup-token': setupToken } }),
+
+  /**
+   * Change the passcode.
+   *
+   * POST rather than PATCH /api/settings, because it needs the CURRENT passcode
+   * as proof and the server deliberately keeps passcode_hash out of the
+   * settings document — mixing it into a settings patch would let anyone who
+   * can reach the endpoint rewrite the lock without knowing the old code.
+   */
+  changePasscode: ({ current_passcode, new_passcode }) =>
+    api.post('/api/settings', { current_passcode, new_passcode }),
 };
 
 export const cardsApi = {

@@ -94,18 +94,25 @@
 <div x-show="authed" x-cloak class="min-h-dvh">
 
   <!-- ---- Header: countdown ---- -->
-  <header class="sticky top-0 z-30 px-4 pt-4">
-    <div class="glass mx-auto max-w-6xl rounded-card px-5 py-4">
+  <header x-ref="appHeader" class="sticky top-0 z-30 px-4 pt-4">
+    <div class="glass-sticky mx-auto max-w-6xl rounded-card px-5 py-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="min-w-0">
           <h1 class="truncate text-heading leading-tight" x-text="settings.site_title || 'Our Little World'"></h1>
           <p class="text-label text-ink-muted" x-text="settings.partner_names || 'You & Me'"></p>
         </div>
-        <button type="button" @click="signOut"
-                class="inline-flex min-h-11 items-center gap-2 rounded-input px-3 text-label text-ink-muted transition-colors duration-200 hover:bg-white/40 hover:text-ink-strong"
-                aria-label="Lock and sign out">
-          <span x-html="ic('lock', 18)"></span><span class="hidden sm:inline">Lock</span>
-        </button>
+        <div class="flex shrink-0 items-center gap-1">
+          <button type="button" @click="openSettings()"
+                  class="inline-flex min-h-11 items-center gap-2 rounded-input px-3 text-label text-ink-muted transition-colors duration-200 hover:bg-white/40 hover:text-ink-strong"
+                  aria-label="Settings">
+            <span x-html="ic('settings', 18)"></span><span class="hidden sm:inline">Settings</span>
+          </button>
+          <button type="button" @click="signOut"
+                  class="inline-flex min-h-11 items-center gap-2 rounded-input px-3 text-label text-ink-muted transition-colors duration-200 hover:bg-white/40 hover:text-ink-strong"
+                  aria-label="Lock and sign out">
+            <span x-html="ic('lock', 18)"></span><span class="hidden sm:inline">Lock</span>
+          </button>
+        </div>
       </div>
 
       <!-- live countdown -->
@@ -130,15 +137,22 @@
           </div>
         </template>
       </div>
-      <p x-show="!countdown" class="mt-4 text-label text-ink-muted">
-        No anchor date yet — set one in Settings to start the countdown.
-      </p>
+      <div x-show="!countdown" class="mt-4 rounded-input bg-white/35 p-3 text-center">
+        <p class="text-label text-ink-muted">No anchor date yet.</p>
+        <button type="button" @click="openSettings()"
+                class="mt-2 inline-flex min-h-11 items-center gap-2 rounded-input bg-rose-deep px-4 text-label font-bold text-white transition-all duration-200 hover:bg-rose-800 active:scale-[0.98]">
+          <span x-html="ic('calendar', 16)"></span> Set our anniversary date
+        </button>
+      </div>
     </div>
   </header>
 
-  <!-- ---- Tabs ---- -->
-  <nav class="sticky top-[calc(var(--header-h,168px))] z-20 mt-4 px-4" aria-label="Sections">
-    <div x-ref="tabStrip" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto rounded-card glass p-1.5">
+  <!-- ---- Tabs ----
+       Sticks directly below the header. The header's height changes with the
+       countdown (shown vs "no anchor date yet") and wraps on narrow screens, so
+       this offset is measured from the live element rather than hardcoded. -->
+  <nav x-ref="tabNav" class="sticky top-[var(--header-h,0px)] z-20 mt-4 px-4" aria-label="Sections">
+    <div x-ref="tabStrip" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto rounded-card glass-sticky p-1.5">
       <template x-for="t in tabs" :key="t.id">
         <button type="button" @click="setTab(t.id)" :ref="(el) => { if (el) tabRefs[t.id] = el }"
                 :aria-current="activeTab === t.id ? 'page' : null"
@@ -658,10 +672,22 @@
     <ul x-show="dayCell?.events.length" class="space-y-3">
       <template x-for="e in (dayCell?.events || [])" :key="e.id">
         <li class="rounded-input bg-white/45 p-3">
-          <p class="flex items-center gap-2 text-label font-bold text-ink-strong">
-            <span class="text-base leading-none" x-text="emojiForType(e.icon_type)"></span>
-            <span x-text="e.title"></span>
-          </p>
+          <div class="flex items-start justify-between gap-2">
+            <p class="flex min-w-0 items-center gap-2 text-label font-bold text-ink-strong">
+              <span class="shrink-0 text-base leading-none" x-text="emojiForType(e.icon_type)"></span>
+              <span class="truncate" x-text="e.title"></span>
+            </p>
+            <div class="flex shrink-0 gap-1">
+              <button type="button" @click="editEvent(e)" :aria-label="`Edit ${e.title}`"
+                      class="inline-flex size-11 items-center justify-center rounded-full text-ink-strong transition-colors duration-200 hover:bg-white/65">
+                <span x-html="ic('pencil', 16)"></span>
+              </button>
+              <button type="button" @click="removeEvent(e)" :aria-label="`Remove ${e.title}`"
+                      class="inline-flex size-11 items-center justify-center rounded-full text-ink-muted transition-colors duration-200 hover:bg-destructive/20 hover:text-destructive">
+                <span x-html="ic('trash', 16)"></span>
+              </button>
+            </div>
+          </div>
           <p x-show="e.description" class="mt-1 whitespace-pre-line text-label text-ink-muted" x-text="e.description"></p>
         </li>
       </template>
@@ -670,7 +696,17 @@
     <div x-show="!dayCell?.events.length && !dayCell?.memories.length" class="py-6 text-center">
       <p class="text-title">Nothing on this day</p>
       <p class="mt-1 text-body text-ink-muted">Make it special?</p>
+      <button type="button" @click="markDay(dayCell.key)"
+              class="mt-4 inline-flex min-h-11 items-center gap-2 rounded-input bg-rose-deep px-5 text-body font-bold text-white transition-all duration-200 ease-soft hover:bg-rose-800 hover:shadow-lift active:scale-[0.98]">
+        <span x-html="ic('markDay', 18)"></span> Mark this day
+      </button>
     </div>
+
+    <!-- add another event to a day that already has one -->
+    <button x-show="dayCell?.events.length" type="button" @click="markDay(dayCell.key)"
+            class="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-input bg-white/55 text-label font-bold text-ink-strong transition-colors duration-200 hover:bg-white/80">
+      <span x-html="ic('plus', 16)"></span> Add another day
+    </button>
 
     <template x-if="dayCell?.memories.length">
       <div class="mt-5">
@@ -687,6 +723,202 @@
         </ul>
       </div>
     </template>
+  </div>
+</div>
+
+<!-- ==================================================================
+     SETTINGS
+     Anchor date, names, volume, and the passcode. The header's empty state
+     links here, so this is the only place a first-time user can start the
+     countdown — it has to be reachable, not merely mentioned.
+     ================================================================== -->
+<div x-show="settingsOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto p-4"
+     role="dialog" aria-modal="true" aria-labelledby="settings-title"
+     @keydown.escape.window="closeSettings()" @click.self="closeSettings()">
+  <div class="fixed inset-0 bg-ink-strong/45" aria-hidden="true"></div>
+
+  <div class="relative mx-auto my-8 w-full max-w-lg">
+    <div class="glass-strong rounded-card p-6">
+      <div class="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h2 id="settings-title" class="text-title">Settings</h2>
+          <p class="mt-0.5 text-label text-ink-muted">Yours alone.</p>
+        </div>
+        <button type="button" @click="closeSettings()" aria-label="Close"
+                class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white/40 text-ink-strong transition-colors hover:bg-white/65">
+          <span x-html="ic('x', 20)"></span>
+        </button>
+      </div>
+
+      <div x-show="settingsError" role="alert"
+           class="mb-4 rounded-input border-[1.5px] border-destructive bg-white/55 p-3 text-label text-ink-strong"
+           x-text="settingsError"></div>
+
+      <form class="space-y-4" @submit.prevent="saveSettings()" novalidate>
+        <div>
+          <label for="s-anchor" class="mb-1.5 block text-label font-bold text-ink-strong">
+            Our anniversary date
+          </label>
+          <input id="s-anchor" type="date" x-model="settingsForm.anchor_date"
+                 :aria-invalid="settingsErrors.anchor_date ? 'true' : 'false'"
+                 class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          <p class="mt-1 text-label text-ink-muted">Starts the countdown and the monthsary reminders.</p>
+          <p x-show="settingsErrors.anchor_date" class="mt-1 text-label font-bold text-destructive" x-text="settingsErrors.anchor_date"></p>
+        </div>
+
+        <div>
+          <label for="s-title" class="mb-1.5 block text-label font-bold text-ink-strong">Site name</label>
+          <input id="s-title" type="text" x-model="settingsForm.site_title" maxlength="120"
+                 :aria-invalid="settingsErrors.site_title ? 'true' : 'false'"
+                 class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          <p x-show="settingsErrors.site_title" class="mt-1 text-label font-bold text-destructive" x-text="settingsErrors.site_title"></p>
+        </div>
+
+        <div>
+          <label for="s-partners" class="mb-1.5 block text-label font-bold text-ink-strong">Our names</label>
+          <input id="s-partners" type="text" x-model="settingsForm.partner_names" maxlength="120"
+                 :aria-invalid="settingsErrors.partner_names ? 'true' : 'false'"
+                 class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          <p x-show="settingsErrors.partner_names" class="mt-1 text-label font-bold text-destructive" x-text="settingsErrors.partner_names"></p>
+        </div>
+
+        <div>
+          <label for="s-volume" class="mb-1.5 flex items-center justify-between text-label font-bold text-ink-strong">
+            <span>Music volume</span>
+            <span class="font-normal text-ink-muted" x-text="Math.round(Number(settingsForm.music_volume) * 100) + '%'"></span>
+          </label>
+          <input id="s-volume" type="range" min="0" max="1" step="0.01"
+                 x-model.number="settingsForm.music_volume"
+                 class="w-full accent-rose-deep">
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button type="submit" :disabled="settingsBusy"
+                  class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-input bg-rose-deep text-body font-bold text-white transition-all duration-200 hover:bg-rose-800 active:scale-[0.98] disabled:opacity-60">
+            <span x-show="settingsBusy" x-html="ic('loader', 16, 'animate-spin')"></span>
+            <span x-text="settingsBusy ? 'Saving…' : 'Save'"></span>
+          </button>
+          <button type="button" @click="closeSettings()" class="min-h-11 rounded-input bg-white/55 px-5 text-body font-bold text-ink-strong transition-colors hover:bg-white/80">
+            Cancel
+          </button>
+        </div>
+      </form>
+
+      <!-- passcode: separate form because it is a different verb on the server
+           (POST, requiring the current code) and must not ride along with a
+           settings patch. -->
+      <div class="mt-6 border-t border-ink/10 pt-5">
+        <h3 class="text-title">Change passcode</h3>
+        <p class="mt-0.5 text-label text-ink-muted">There is no reset link — remember the new one.</p>
+
+        <div x-show="passcodeError" role="alert"
+             class="mt-3 rounded-input border-[1.5px] border-destructive bg-white/55 p-3 text-label text-ink-strong"
+             x-text="passcodeError"></div>
+
+        <form class="mt-3 space-y-3" @submit.prevent="changePasscode()" novalidate>
+          <div>
+            <label for="p-current" class="mb-1 block text-label font-bold text-ink-strong">Current passcode</label>
+            <input id="p-current" type="password" x-model="passcodeForm.current" autocomplete="current-password"
+                   class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          </div>
+          <div>
+            <label for="p-next" class="mb-1 block text-label font-bold text-ink-strong">New passcode</label>
+            <input id="p-next" type="password" x-model="passcodeForm.next" autocomplete="new-password"
+                   class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          </div>
+          <div>
+            <label for="p-confirm" class="mb-1 block text-label font-bold text-ink-strong">New passcode again</label>
+            <input id="p-confirm" type="password" x-model="passcodeForm.confirm" autocomplete="new-password"
+                   class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          </div>
+          <button type="submit" :disabled="passcodeBusy"
+                  class="min-h-11 w-full rounded-input bg-white/55 text-body font-bold text-ink-strong transition-colors hover:bg-white/80 disabled:opacity-60">
+            <span x-text="passcodeBusy ? 'Changing…' : 'Change passcode'"></span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================
+     CALENDAR EVENT EDITOR — "mark this day"
+     ================================================================== -->
+<div x-show="eventEdit.open" x-cloak class="fixed inset-0 z-50 overflow-y-auto p-4"
+     role="dialog" aria-modal="true" aria-labelledby="event-edit-title"
+     @keydown.escape.window="closeEventEdit()" @click.self="closeEventEdit()">
+  <div class="fixed inset-0 bg-ink-strong/45" aria-hidden="true"></div>
+
+  <div class="relative mx-auto my-8 w-full max-w-lg">
+    <div class="glass-strong rounded-card p-6">
+      <div class="mb-5 flex items-start justify-between gap-3">
+        <h2 id="event-edit-title" class="text-title" x-text="eventEdit.id ? 'Edit this day' : 'Mark this day'"></h2>
+        <button type="button" @click="closeEventEdit()" aria-label="Close"
+                class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white/40 text-ink-strong transition-colors hover:bg-white/65">
+          <span x-html="ic('x', 20)"></span>
+        </button>
+      </div>
+
+      <div x-show="eventError" role="alert"
+           class="mb-4 rounded-input border-[1.5px] border-destructive bg-white/55 p-3 text-label text-ink-strong"
+           x-text="eventError"></div>
+
+      <form class="space-y-4" @submit.prevent="saveEvent()" novalidate>
+        <div>
+          <label for="ev-date" class="mb-1.5 block text-label font-bold text-ink-strong">Date</label>
+          <input id="ev-date" type="date" x-model="eventEdit.event_date"
+                 :aria-invalid="eventEdit.errors.event_date ? 'true' : 'false'"
+                 class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          <p class="mt-1 text-label text-ink-muted" x-text="eventEdit.event_date ? longDate(eventEdit.event_date) : 'Pick a day to mark.'"></p>
+          <p x-show="eventEdit.errors.event_date" class="mt-1 text-label font-bold text-destructive" x-text="eventEdit.errors.event_date"></p>
+        </div>
+
+        <fieldset>
+          <legend class="mb-1.5 block text-label font-bold text-ink-strong">Kind</legend>
+          <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <template x-for="t in eventTypes" :key="t.id">
+              <button type="button" @click="eventEdit.icon_type = t.id"
+                      :aria-pressed="eventEdit.icon_type === t.id ? 'true' : 'false'"
+                      class="flex min-h-11 items-center gap-2 rounded-input px-3 text-label font-bold transition-all duration-200"
+                      :class="eventEdit.icon_type === t.id
+                        ? 'bg-rose-deep text-white'
+                        : 'bg-white/55 text-ink-strong hover:bg-white/80'">
+                <span class="text-base leading-none" x-text="t.emoji"></span>
+                <span x-text="t.label"></span>
+              </button>
+            </template>
+          </div>
+        </fieldset>
+
+        <div>
+          <label for="ev-title" class="mb-1.5 block text-label font-bold text-ink-strong">Title</label>
+          <input id="ev-title" type="text" x-model="eventEdit.title" maxlength="255"
+                 placeholder="The day we met"
+                 :aria-invalid="eventEdit.errors.title ? 'true' : 'false'"
+                 class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          <p x-show="eventEdit.errors.title" class="mt-1 text-label font-bold text-destructive" x-text="eventEdit.errors.title"></p>
+        </div>
+
+        <div>
+          <label for="ev-desc" class="mb-1.5 block text-label font-bold text-ink-strong">
+            Note <span class="font-medium text-ink-muted">(optional)</span>
+          </label>
+          <textarea id="ev-desc" rows="4" x-model="eventEdit.description" maxlength="4000"
+                    class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75"></textarea>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button type="submit" :disabled="eventBusy"
+                  class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-input bg-rose-deep text-body font-bold text-white transition-all duration-200 hover:bg-rose-800 active:scale-[0.98] disabled:opacity-60">
+            <span x-show="eventBusy" x-html="ic('loader', 16, 'animate-spin')"></span>
+            <span x-text="eventBusy ? 'Saving…' : (eventEdit.id ? 'Save changes' : 'Mark it')"></span>
+          </button>
+          <button type="button" @click="closeEventEdit()" class="min-h-11 rounded-input bg-white/55 px-5 text-body font-bold text-ink-strong transition-colors hover:bg-white/80">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 

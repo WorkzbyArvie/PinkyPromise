@@ -94,6 +94,30 @@
   box-shadow: var(--shadow-lift);
 }
 
+/*
+ * Opaque-backed glass for STICKY chrome.
+ *
+ * `.glass` is 15% white, which is the right amount for a panel sitting on the
+ * page but far too little for something content scrolls underneath: the sticky
+ * header sat at 15% alpha and calendar day numbers read straight through it,
+ * so scrolling produced a scatter of stray digits across the title bar and tab
+ * strip. Backdrop blur cannot fix that — blur needs a backdrop to work against,
+ * and a near-transparent fill passes it straight through.
+ *
+ * So the fill is layered over an opaque blush close to the page gradient. The
+ * frosted look survives at the edges while the middle is solid enough to mask
+ * whatever is scrolled beneath it.
+ */
+@utility glass-sticky {
+  background:
+    linear-gradient(rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.34)),
+    var(--color-blush-soft);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgb(255 255 255 / 0.35);
+  box-shadow: var(--shadow-glass);
+}
+
 /* Soft rose glow — reserved for focus, active bar, and the jar. */
 @utility glow {
   box-shadow: var(--shadow-glow);

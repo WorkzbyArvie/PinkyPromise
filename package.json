@@ -17,7 +17,7 @@
     "db:verify": "node scripts/verify-rls.mjs",
     "db:reset-passcode": "node scripts/reset-passcode.mjs",
     "db:set-anchor": "node scripts/set-anchor.mjs",
-    "test": "node test.mjs && node test-sources.mjs",
+    "test": "node test.mjs && node test-sources.mjs && node test-sync.mjs",
     "test:api": "node scripts/test-api.mjs",
     "test:php": "node scripts/test-php.mjs",
     "test:boot": "node scripts/test-boot.mjs",
