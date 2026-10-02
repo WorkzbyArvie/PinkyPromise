@@ -1,0 +1,16 @@
+{
+  "name": "reconciliation-memory-box",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive relationship & reconciliation web app — memory photocards, anniversary calendar, heart decks.",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/input.css -o ./css/app.css --minify",
+    "dev:css": "tailwindcss -i ./src/input.css -o ./css/app.css --watch",
+    "serve:css": "tailwindcss -i ./src/input.css -o ./css/app.css"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
+    "tailwindcss": "^4.3.0"
+  }
+}

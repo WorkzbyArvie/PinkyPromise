@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Our Little World</title>
+<meta name="description" content="Memory photocards, anniversaries, and notes kept just for us.">
+<meta name="theme-color" content="#FDF2F8">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="js/vendor/cropper.min.css">
+<link rel="stylesheet" href="css/app.css">
+
+<style>[x-cloak]{display:none!important}</style>
+</head>
+
+<body x-data="appShell" x-init="boot()" :class="authed && 'pb-24'">
+
+<!-- ==================================================================
+     LOCK SCREEN
+     Real gate: POST /api/auth must succeed before the app renders.
+     ================================================================== -->
+<div x-show="!authed" x-cloak class="fixed inset-0 z-50 overflow-hidden"
+     role="dialog" aria-modal="true" aria-labelledby="lock-heading">
+
+  <!-- floating hearts backdrop -->
+  <div class="pointer-events-none absolute inset-0" aria-hidden="true">
+    <template x-for="h in hearts" :key="h.id">
+      <span class="float-heart absolute select-none" :style="h.style" x-text="h.glyph"></span>
+    </template>
+  </div>
+
+  <div class="glass-strong relative flex min-h-full items-center justify-center p-6">
+    <div class="w-full max-w-sm text-center">
+
+      <p class="mb-2 text-label uppercase tracking-[0.18em] text-ink-muted">Private</p>
+      <h1 id="lock-heading" class="text-display text-ink-strong">Our little world is just for us</h1>
+      <p class="mt-3 mb-8 text-body text-ink-muted">Enter our passcode to open it.</p>
+
+      <form class="space-y-4" @submit.prevent="signIn" novalidate>
+
+        <!-- error summary: focused on failed submit, per the a11y contract -->
+        <div x-show="authError" x-ref="authError" tabindex="-1" role="alert"
+             class="rounded-input border-[1.5px] border-destructive bg-white/50 px-4 py-3 text-left text-label text-ink-strong">
+          <span class="flex items-start gap-2">
+            <span class="mt-0.5 shrink-0" x-html="ic('alert', 18)"></span>
+            <span x-text="authError"></span>
+          </span>
+        </div>
+
+        <div class="text-left">
+          <label for="passcode" class="mb-1.5 block text-label text-ink-strong">Passcode</label>
+          <input id="passcode" name="passcode" type="password" x-model="passcode"
+                 autocomplete="current-password" inputmode="numeric" placeholder="••••"
+                 class="w-full rounded-input bg-white/45 px-4 py-3 text-body text-ink-strong placeholder:text-ink-muted focus:bg-white/65"
+                 :disabled="authBusy" :aria-invalid="authError ? 'true' : 'false'"
+                 aria-describedby="passcode-hint">
+          <p id="passcode-hint" class="mt-1.5 text-label text-ink-muted">Your anniversary, or whatever you chose.</p>
+        </div>
+
+        <label class="flex items-center gap-2 text-left text-label text-ink-muted">
+          <input type="checkbox" x-model="remember" :disabled="authBusy"
+                 class="size-4 accent-rose-deep">
+          Keep me signed in on this device
+        </label>
+
+        <button type="submit" :disabled="authBusy"
+                class="flex min-h-11 w-full items-center justify-center gap-2 rounded-input bg-rose-deep px-5 text-body font-bold text-white transition-all duration-200 ease-soft hover:bg-rose-800 hover:shadow-lift active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+          <span x-show="authBusy" x-html="ic('loader', 18, 'animate-spin')"></span>
+          <span x-text="authBusy ? 'Opening…' : 'Unlock'"></span>
+        </button>
+      </form>
+
+      <div x-show="bootError" class="mt-6 rounded-input border-[1.5px] border-destructive bg-white/50 px-4 py-3 text-left text-label text-ink-strong">
+        <p class="font-bold" x-text="bootError"></p>
+        <button type="button" @click="boot()" class="mt-2 inline-flex items-center gap-1.5 font-bold text-rose-deep underline underline-offset-2">
+          <span x-html="ic('retry', 14)"></span> Try again
+        </button>
+      </div>
+
+      <p x-show="demoMode" class="mt-6 rounded-input bg-white/40 px-3 py-2 text-label text-ink-muted">
+        Demo mode — no server needed.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================
+     APP
+     ================================================================== -->
+<div x-show="authed" x-cloak class="min-h-dvh">
+
+  <!-- ---- Header: countdown ---- -->
+  <header class="sticky top-0 z-30 px-4 pt-4">
+    <div class="glass mx-auto max-w-6xl rounded-card px-5 py-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0">
+          <h1 class="truncate text-heading leading-tight" x-text="settings.site_title || 'Our Little World'"></h1>
+          <p class="text-label text-ink-muted" x-text="settings.partner_names || 'You & Me'"></p>
+        </div>
+        <button type="button" @click="signOut"
+                class="inline-flex min-h-11 items-center gap-2 rounded-input px-3 text-label text-ink-muted transition-colors duration-200 hover:bg-white/40 hover:text-ink-strong"
+                aria-label="Lock and sign out">
+          <span x-html="ic('lock', 18)"></span><span class="hidden sm:inline">Lock</span>
+        </button>
+      </div>
+
+      <!-- live countdown -->
+      <div x-show="countdown" class="mt-4 rounded-input bg-white/35 p-3 text-center">
+        <template x-if="countdown">
+          <div>
+            <p class="text-label uppercase tracking-[0.16em] text-ink-muted">Together</p>
+            <p class="font-display text-3xl leading-tight text-ink-strong sm:text-4xl">
+              <span x-text="countdown.elapsed.years"></span>y
+              <span class="text-rose-deep" x-text="countdown.elapsed.months"></span>m
+              <span x-text="countdown.elapsed.days"></span>d
+            </p>
+            <p class="text-label text-ink-muted">
+              <span x-text="countdown.elapsed.hours"></span> hours
+              <span class="mx-1" aria-hidden="true">·</span>
+              <span x-text="countdown.elapsed.minutes"></span> minutes
+            </p>
+            <p class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-rose px-3 py-1 text-label font-bold text-ink-strong glow">
+              <span x-html="ic('clock', 14)"></span>
+              <span x-text="`${countdown.next.days} day${countdown.next.days === 1 ? '' : 's'} until ${countdown.next.label.toLowerCase()}`"></span>
+            </p>
+          </div>
+        </template>
+      </div>
+      <p x-show="!countdown" class="mt-4 text-label text-ink-muted">
+        No anchor date yet — set one in Settings to start the countdown.
+      </p>
+    </div>
+  </header>
+
+  <!-- ---- Tabs ---- -->
+  <nav class="sticky top-[calc(var(--header-h,168px))] z-20 mt-4 px-4" aria-label="Sections">
+    <div x-ref="tabStrip" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto rounded-card glass p-1.5">
+      <template x-for="t in tabs" :key="t.id">
+        <button type="button" @click="setTab(t.id)" :ref="(el) => { if (el) tabRefs[t.id] = el }"
+                :aria-current="activeTab === t.id ? 'page' : null"
+                class="flex min-h-11 shrink-0 items-center gap-2 rounded-input px-4 text-label font-bold transition-all duration-200 ease-soft"
+                :class="activeTab === t.id ? 'bg-rose-deep text-white shadow-sm' : 'text-ink-muted hover:bg-white/40 hover:text-ink-strong'">
+          <span x-html="ic(t.icon, 16)"></span>
+          <span x-text="t.label"></span>
+        </button>
+      </template>
+    </div>
+  </nav>
+
+  <main class="mx-auto max-w-6xl px-4 py-6">
+
+    <!-- ============================================================
+         MODULE 1 — MEMORY PHOTOCARDS
+         ============================================================ -->
+    <section x-show="activeTab === 'memories'" x-cloak aria-labelledby="memories-h">
+      <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="memories-h" class="text-heading">Memory photocards</h2>
+          <p class="text-label text-ink-muted">Tap a card to open its letter.</p>
+        </div>
+        <button type="button" @click="openAdmin()"
+                class="inline-flex min-h-11 items-center gap-2 rounded-input bg-rose-deep px-5 text-body font-bold text-white transition-all duration-200 ease-soft hover:bg-rose-800 hover:shadow-lift active:scale-[0.98]">
+          <span x-html="ic('plus', 18)"></span> Add a memory
+        </button>
+      </div>
+
+      <!-- banner -->
+      <div x-show="loadError" role="alert"
+           class="glass mb-5 flex flex-wrap items-center justify-between gap-3 rounded-input border-[1.5px] border-destructive p-4">
+        <span class="flex items-center gap-2 text-label text-ink-strong">
+          <span x-html="ic('alert', 18)"></span><span x-text="loadError"></span>
+        </span>
+        <button type="button" @click="reload()" class="inline-flex min-h-11 items-center gap-1.5 rounded-input bg-white/60 px-4 text-label font-bold text-ink-strong transition-colors hover:bg-white/85">
+          <span x-html="ic('retry', 16)"></span> Retry
+        </button>
+      </div>
+
+      <!-- loading skeletons: 1:1, same size as real cards -->
+      <div x-show="loading" class="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <template x-for="i in 6" :key="i">
+          <div class="aspect-square animate-pulse rounded-card bg-white/40"></div>
+        </template>
+      </div>
+
+      <!-- empty -->
+      <div x-show="!loading && !loadError && photos.length === 0" class="glass rounded-card p-10 text-center">
+        <span class="mx-auto mb-3 block text-ink-muted" x-html="ic('image', 40)"></span>
+        <h3 class="text-title">No memories yet</h3>
+        <p class="mt-1 text-body text-ink-muted">Add the first photo and write the letter that goes with it.</p>
+        <button type="button" @click="openAdmin()" class="mt-5 inline-flex min-h-11 items-center gap-2 rounded-input bg-rose-deep px-5 text-body font-bold text-white transition-colors hover:bg-rose-800">
+          <span x-html="ic('upload', 18)"></span> Choose a photo
+        </button>
+      </div>
+
+      <!-- grid -->
+      <ul x-show="!loading && photos.length" class="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <template x-for="(p, i) in photos" :key="p.id">
+          <li class="stagger-item" :style="`animation-delay:${Math.min(i, 11) * 40}ms`">
+            <button type="button" @click="openViewer(p)"
+                    class="photocard group relative block aspect-square w-full overflow-hidden rounded-card glossy text-left transition-all duration-300 ease-soft hover:-translate-y-1 hover:shadow-lift focus-visible:-translate-y-1">
+              <img :src="p.photo_url" :alt="p.title" loading="lazy" decoding="async"
+                   class="h-full w-full object-cover transition-transform duration-500 ease-soft group-hover:scale-105">
+              <span class="glossy-after" aria-hidden="true"></span>
+              <span class="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-linear-to-t from-ink-strong/55 to-transparent p-3 pt-10">
+                <span class="font-display text-lg leading-tight text-white" x-text="p.title"></span>
+                <span x-show="p.memory_date" class="shrink-0 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-bold text-ink-strong" x-text="fmtDate(p.memory_date)"></span>
+              </span>
+            </button>
+          </li>
+        </template>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         MODULE 2 — CALENDAR
+         ============================================================ -->
+    <section x-show="activeTab === 'calendar'" x-cloak aria-labelledby="calendar-h">
+      <div class="mb-5">
+        <h2 id="calendar-h" class="text-heading">Our calendar</h2>
+        <p class="text-label text-ink-muted">Tap a day to see what we marked.</p>
+      </div>
+
+      <div class="glass rounded-card p-4 sm:p-6">
+        <div class="mb-4 flex items-center justify-between gap-2">
+          <button type="button" @click="moveMonth(-1)" aria-label="Previous month"
+                  class="inline-flex size-11 items-center justify-center rounded-input text-ink-strong transition-colors duration-200 hover:bg-white/50">
+            <span x-html="ic('chevronLeft', 20)"></span>
+          </button>
+          <h3 class="text-title" aria-live="polite" x-text="monthLabel(calYear, calMonth)"></h3>
+          <button type="button" @click="moveMonth(1)" aria-label="Next month"
+                  class="inline-flex size-11 items-center justify-center rounded-input text-ink-strong transition-colors duration-200 hover:bg-white/50">
+            <span x-html="ic('chevronRight', 20)"></span>
+          </button>
+        </div>
+
+        <div class="mb-1 grid grid-cols-7 gap-1">
+          <template x-for="(d, i) in weekdays" :key="i">
+            <div class="py-1 text-center text-[11px] font-bold uppercase tracking-wide text-ink-muted" x-text="d"></div>
+          </template>
+        </div>
+
+        <div class="grid grid-cols-7 gap-1">
+          <template x-for="cell in cells" :key="cell.key">
+            <button type="button" @click="openDay(cell)"
+                    class="day relative flex aspect-square flex-col items-center justify-center rounded-input transition-all duration-200 ease-soft"
+                    :class="[
+                      cell.inMonth ? 'text-ink-strong' : 'text-ink-muted/50',
+                      cell.isToday ? 'ring-2 ring-rose-deep' : '',
+                      cell.events.length || cell.memories.length ? 'bg-white/45 hover:bg-white/70' : 'hover:bg-white/30'
+                    ]"
+                    :aria-label="dayLabel(cell)">
+              <span class="text-[13px] font-bold leading-none" x-text="cell.day"></span>
+              <span x-show="cell.events.length" class="mt-0.5 text-[10px] leading-none" x-text="emojiFor(cell)"></span>
+              <span x-show="cell.memories.length" class="absolute right-1 top-1 size-1.5 rounded-full bg-rose-deep" aria-hidden="true"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- legend -->
+        <div class="mt-5 flex flex-wrap gap-x-4 gap-y-2 border-t border-ink/10 pt-4">
+          <template x-for="l in legend" :key="l.type">
+            <span class="inline-flex items-center gap-1.5 text-label text-ink-muted">
+              <span class="text-base leading-none" x-text="l.emoji"></span>
+              <span x-text="l.label"></span>
+            </span>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         MODULE 3 — HEART DECK
+         ============================================================ -->
+    <section x-show="activeTab === 'decks'" x-cloak aria-labelledby="decks-h">
+      <div class="mb-5">
+        <h2 id="decks-h" class="text-heading">Heart deck</h2>
+        <p class="text-label text-ink-muted" x-text="deckMeta.blurb"></p>
+      </div>
+
+      <div class="mb-5 flex gap-1 overflow-x-auto rounded-card glass p-1.5" role="tablist" aria-label="Card categories">
+        <template x-for="c in deckTabs" :key="c.id">
+          <button type="button" role="tab" @click="setDeck(c.id)"
+                  :aria-selected="deckCategory === c.id"
+                  :ref="(el) => { if (el) deckTabRefs[c.id] = el }"
+                  class="flex min-h-11 shrink-0 items-center gap-2 rounded-input px-4 text-label font-bold transition-all duration-200 ease-soft"
+                  :class="deckCategory === c.id ? 'bg-rose-deep text-white shadow-sm' : 'text-ink-muted hover:bg-white/40 hover:text-ink-strong'">
+            <span x-text="c.emoji"></span><span x-text="c.label"></span>
+            <span class="rounded-full px-1.5 py-0.5 text-[11px]"
+                  :class="deckCategory === c.id ? 'bg-white/25 text-white' : 'bg-ink/10 text-ink-muted'"
+                  x-text="(decks[c.id] || []).length"></span>
+          </button>
+        </template>
+      </div>
+
+      <div x-show="!loading && (decks[deckCategory] || []).length === 0" class="glass rounded-card p-10 text-center">
+        <span class="mx-auto mb-3 block text-ink-muted" x-html="ic('quote', 36)"></span>
+        <h3 class="text-title" x-text="`No cards in ${deckMeta.label.toLowerCase()} yet`"></h3>
+        <p class="mt-1 text-body text-ink-muted">Write one and it will show up here.</p>
+      </div>
+
+      <div x-ref="deckRow" @keydown="onDeckKey($event)"
+           class="flex snap-x snap-mandatory gap-6 overflow-x-auto pb-4"
+           role="tabpanel" :aria-label="deckMeta.label">
+        <template x-for="c in (decks[deckCategory] || [])" :key="c.id">
+          <article data-deck-card
+                   class="glass w-[85vw] max-w-sm shrink-0 snap-center rounded-card p-6 sm:w-[22rem]">
+            <h3 class="mb-3 font-display text-2xl leading-tight" x-text="c.title"></h3>
+            <p class="whitespace-pre-line text-body leading-relaxed text-ink-strong" x-text="c.content"></p>
+          </article>
+        </template>
+      </div>
+
+      <div class="mt-2 flex gap-2">
+        <button type="button" @click="pageDeck(-1)" aria-label="Previous cards"
+                class="inline-flex size-11 items-center justify-center rounded-input glass text-ink-strong transition-colors hover:bg-white/60">
+          <span x-html="ic('chevronLeft', 20)"></span>
+        </button>
+        <button type="button" @click="pageDeck(1)" aria-label="Next cards"
+                class="inline-flex size-11 items-center justify-center rounded-input glass text-ink-strong transition-colors hover:bg-white/60">
+          <span x-html="ic('chevronRight', 20)"></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         MODULE 4 — PROMISE JAR
+         ============================================================ -->
+    <section x-show="activeTab === 'jar'" x-cloak aria-labelledby="jar-h">
+      <div class="mb-5">
+        <h2 id="jar-h" class="text-heading">Promise jar</h2>
+        <p class="text-label text-ink-muted">Tap the jar for a promise. No repeats until every one's been read.</p>
+      </div>
+
+      <div class="glass flex flex-col items-center rounded-card p-8 text-center sm:p-12">
+        <button type="button" @click="drawPromise()"
+                :class="jarDrawing ? 'jar-shaking' : ''"
+                class="breathe relative mb-6 grid size-40 place-items-center rounded-full text-ink-strong transition-transform duration-300 ease-soft hover:scale-105 active:scale-95"
+                aria-label="Draw a promise from the jar">
+          <span class="absolute inset-0 rounded-full bg-linear-to-br from-rose/70 to-lavender-500/50 glow"></span>
+          <span class="relative" x-html="ic('sparkle', 56)"></span>
+        </button>
+
+        <p class="mb-4 text-label text-ink-muted" x-text="`${jarRemaining} of ${jarTotal} still in the jar`"></p>
+
+        <blockquote x-show="jarNote" x-cloak
+                    class="glass-strong max-w-xl rounded-card px-6 py-5">
+          <span class="mx-auto mb-2 block text-rose-deep" x-html="ic('quote', 26)"></span>
+          <p class="letter-body" x-text="jarNote"></p>
+        </blockquote>
+
+        <p x-show="!jarNote" class="text-body text-ink-muted">Your promise will appear here.</p>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         MUSIC — add tracks: upload, YouTube link, or Spotify link
+         ============================================================ -->
+    <section x-show="activeTab === 'music'" x-cloak aria-labelledby="music-h">
+      <div class="mb-5">
+        <h2 id="music-h" class="text-heading">Our music</h2>
+        <p class="text-label text-ink-muted">
+          Uploaded files play here with the visualiser. YouTube plays in a popover above the
+          bar. Spotify opens in Spotify — it can't be embedded.
+        </p>
+      </div>
+
+      <div class="glass rounded-card p-5 sm:p-6">
+        <h3 class="mb-3 text-title">Add a track</h3>
+
+        <div x-show="trackError" role="alert"
+             class="mb-4 rounded-input border-[1.5px] border-destructive bg-white/55 p-3 text-label text-ink-strong"
+             x-text="trackError"></div>
+
+        <form class="space-y-4" @submit.prevent="addTrack()" novalidate>
+          <div>
+            <label for="t-title" class="mb-1.5 block text-label font-bold text-ink-strong">Title</label>
+            <input id="t-title" type="text" x-model="trackForm.title" maxlength="255"
+                   placeholder="Our Song" class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          </div>
+
+          <!-- source picker -->
+          <div>
+            <span class="mb-1.5 block text-label font-bold text-ink-strong">Where is it?</span>
+            <div class="flex gap-1 rounded-input glass p-1.5" role="radiogroup" aria-label="Track source">
+              <template x-for="s in trackSources" :key="s.id">
+                <button type="button" role="radio" @click="trackForm.source_type = s.id"
+                        :aria-checked="trackForm.source_type === s.id"
+                        class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-input text-label font-bold transition-all duration-200 ease-soft"
+                        :class="trackForm.source_type === s.id ? 'bg-rose-deep text-white' : 'text-ink-muted hover:bg-white/40 hover:text-ink-strong'">
+                  <span x-html="ic(s.icon, 16)"></span>
+                  <span class="hidden sm:inline" x-text="s.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- file upload -->
+          <div x-show="trackForm.source_type === 'file'">
+            <label for="t-audio"
+                   class="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-card border-2 border-dashed border-rose-mid bg-white/30 px-4 py-6 text-center transition-colors hover:bg-white/50">
+              <span class="text-ink-muted" x-html="ic('upload', 28)"></span>
+              <span class="text-label font-bold text-ink-strong" x-text="trackForm.file ? trackForm.file.name : 'Choose an audio file'"></span>
+              <span class="text-label text-ink-muted">mp3, m4a, ogg or wav · up to 20 MB</span>
+              <input id="t-audio" type="file" accept="audio/*" class="sr-only"
+                     @change="trackForm.file = $event.target.files?.[0] ?? null">
+            </label>
+            <p class="mt-2 text-label text-ink-muted">
+              Or paste a direct link to an audio file:
+            </p>
+            <input type="url" x-model="trackForm.url" placeholder="https://…/song.mp3"
+                   class="mt-1.5 w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          </div>
+
+          <!-- youtube / spotify link -->
+          <div x-show="trackForm.source_type !== 'file'">
+            <label for="t-link" class="mb-1.5 block text-label font-bold text-ink-strong"
+                   x-text="trackForm.source_type === 'youtube' ? 'YouTube link' : 'Spotify link'"></label>
+            <input id="t-link" type="url"
+                   :placeholder="trackForm.source_type === 'youtube' ? 'https://youtu.be/…' : 'https://open.spotify.com/track/…'"
+                   x-model="trackForm.url"
+                   class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+            <p class="mt-1.5 text-label text-ink-muted" x-text="trackHint"></p>
+          </div>
+
+          <button type="submit" :disabled="trackBusy"
+                  class="flex min-h-11 w-full items-center justify-center gap-2 rounded-input bg-rose-deep text-body font-bold text-white transition-all duration-200 hover:bg-rose-800 hover:shadow-lift active:scale-[0.98] disabled:opacity-60">
+            <span x-show="trackBusy" x-html="ic('loader', 16, 'animate-spin')"></span>
+            <span x-text="trackBusy ? 'Adding…' : 'Add track'"></span>
+          </button>
+        </form>
+      </div>
+
+      <!-- saved list -->
+      <div class="mt-6">
+        <h3 class="mb-3 text-title">
+          In rotation
+          <span class="ml-1 text-label font-medium text-ink-muted" x-text="`(${music.tracks.length})`"></span>
+        </h3>
+
+        <p x-show="!music.tracks.length" class="glass rounded-card p-6 text-center text-body text-ink-muted">
+          No tracks yet. Add your first one above.
+        </p>
+
+        <ul x-show="music.tracks.length" class="space-y-2">
+          <template x-for="(t, i) in music.tracks" :key="t.source">
+            <li class="glass flex items-center gap-3 rounded-input p-3">
+              <button type="button" @click="musicJump(i)" :aria-label="`Play ${t.title}`"
+                      class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink-strong transition-colors hover:bg-white/50">
+                <span x-html="ic(music.index === i && music.playing ? 'pause' : 'play', 16)"></span>
+              </button>
+
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-label font-bold text-ink-strong" x-text="t.title"></p>
+                <p class="truncate text-[11px] text-ink-muted" x-text="t.origin === 'bundled' ? t.source : t.source_type"></p>
+              </div>
+
+              <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
+                    :class="{
+                      'bg-ink/10 text-ink-muted': t.source_type === 'file',
+                      'bg-[#DC2626]/15 text-[#991B1B]': t.source_type === 'youtube',
+                      'bg-[#1DB954]/20 text-[#0B6B33]': t.source_type === 'spotify'
+                    }"
+                    x-text="t.source_type === 'youtube' ? 'YouTube' : t.source_type === 'spotify' ? 'Spotify' : 'File'"></span>
+
+              <button type="button" x-show="!demoMode" @click="removeTrack(t)"
+                      :aria-label="`Remove ${t.title}`"
+                      class="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-destructive/20 hover:text-destructive">
+                <span x-html="ic('trash', 16)"></span>
+              </button>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </section>
+
+    <footer class="pt-4 pb-8 text-center text-label text-ink-muted">
+      Kept just for us.
+    </footer>
+  </main>
+</div>
+
+<!-- ==================================================================
+     PHOTO VIEWER MODAL — 3D flip + typewriter letter
+     ================================================================== -->
+<div x-show="viewer.open" x-cloak class="fixed inset-0 z-50 grid place-items-center p-4"
+     role="dialog" aria-modal="true" aria-labelledby="viewer-title"
+     @keydown.escape.window="closeViewer()" @click.self="closeViewer()">
+  <div class="absolute inset-0 bg-ink-strong/45" aria-hidden="true"></div>
+
+  <div class="relative w-full max-w-md">
+    <div class="mb-3 flex items-start justify-between gap-3">
+      <h2 id="viewer-title" class="text-title text-white" x-text="viewer.card?.title"></h2>
+      <button type="button" @click="closeViewer()" aria-label="Close"
+              class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur transition-colors hover:bg-white/35">
+        <span x-html="ic('x', 20)"></span>
+      </button>
+    </div>
+
+    <div class="[perspective:1600px]">
+      <div class="relative aspect-square w-full transition-transform duration-700 ease-flip"
+           :style="viewer.flipped ? 'transform:rotateY(180deg)' : ''"
+           :class="viewer.flipped ? '[transform-style:preserve-3d]' : ''">
+
+        <!-- FRONT -->
+        <div class="absolute inset-0 overflow-hidden rounded-card glossy [backface-visibility:hidden]">
+          <img x-show="viewer.card" :src="viewer.card?.photo_url" :alt="viewer.card?.title" class="h-full w-full object-cover">
+          <span class="glossy-after" aria-hidden="true"></span>
+          <div class="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-ink-strong/60 to-transparent p-4 pt-12">
+            <span class="text-label font-bold text-white">Tap the envelope to read</span>
+            <button type="button" @click.stop="flipOpen()"
+                    class="inline-flex min-h-11 items-center gap-2 rounded-full bg-white/90 px-4 text-label font-bold text-ink-strong transition-transform duration-200 hover:scale-105"
+                    aria-label="Open the letter">
+              <span x-html="ic('envelope', 18)"></span> Open
+            </button>
+          </div>
+        </div>
+
+        <!-- BACK (the letter) -->
+        <div class="absolute inset-0 overflow-hidden rounded-card glass-strong p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+          <span class="absolute right-4 top-4 text-rose" x-html="ic('heart', 26)"></span>
+          <p class="font-display text-title text-ink-strong" x-text="viewer.card?.title"></p>
+          <div class="my-3 h-px bg-ink/15"></div>
+          <!-- click skips to the end of the typewriter -->
+          <p x-ref="letter" class="letter-body cursor-pointer overflow-y-auto pr-2" @click="skipTypewriter()"></p>
+          <div class="absolute inset-x-0 bottom-0 flex justify-center p-4">
+            <button type="button" @click.stop="flipClose()"
+                    class="min-h-11 rounded-full bg-rose-deep px-5 text-label font-bold text-white transition-colors hover:bg-rose-800">
+              Flip back
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- admin actions -->
+    <div x-show="viewer.card && viewer.canEdit" class="mt-4 flex justify-center gap-2">
+      <button type="button" @click="closeViewer(); openAdmin(viewer.card, true)"
+              class="inline-flex min-h-11 items-center gap-2 rounded-input bg-white/20 px-4 text-label font-bold text-white backdrop-blur transition-colors hover:bg-white/35">
+        <span x-html="ic('pencil', 16)"></span> Edit
+      </button>
+      <button type="button" @click="removeViewerCard()"
+              class="inline-flex min-h-11 items-center gap-2 rounded-input bg-white/20 px-4 text-label font-bold text-white backdrop-blur transition-colors hover:bg-destructive/70">
+        <span x-html="ic('trash', 16)"></span> Delete
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================
+     DAY DETAIL MODAL
+     ================================================================== -->
+<div x-show="dayCell" x-cloak class="fixed inset-0 z-50 grid place-items-center p-4"
+     role="dialog" aria-modal="true" aria-labelledby="day-title"
+     @keydown.escape.window="dayCell = null" @click.self="dayCell = null">
+  <div class="absolute inset-0 bg-ink-strong/45" aria-hidden="true"></div>
+  <div class="glass-strong relative w-full max-w-md rounded-card p-6">
+    <div class="mb-4 flex items-start justify-between gap-3">
+      <div>
+        <h2 id="day-title" class="text-title" x-text="dayCell ? longDate(dayCell.key) : ''"></h2>
+        <p x-show="dayCell?.events[0]" class="text-label text-ink-muted" x-text="dayCell?.events[0]?.title"></p>
+      </div>
+      <button type="button" @click="dayCell = null" aria-label="Close"
+              class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white/40 text-ink-strong transition-colors hover:bg-white/65">
+        <span x-html="ic('x', 20)"></span>
+      </button>
+    </div>
+
+    <ul x-show="dayCell?.events.length" class="space-y-3">
+      <template x-for="e in (dayCell?.events || [])" :key="e.id">
+        <li class="rounded-input bg-white/45 p-3">
+          <p class="flex items-center gap-2 text-label font-bold text-ink-strong">
+            <span class="text-base leading-none" x-text="emojiForType(e.icon_type)"></span>
+            <span x-text="e.title"></span>
+          </p>
+          <p x-show="e.description" class="mt-1 whitespace-pre-line text-label text-ink-muted" x-text="e.description"></p>
+        </li>
+      </template>
+    </ul>
+
+    <div x-show="!dayCell?.events.length && !dayCell?.memories.length" class="py-6 text-center">
+      <p class="text-title">Nothing on this day</p>
+      <p class="mt-1 text-body text-ink-muted">Make it special?</p>
+    </div>
+
+    <template x-if="dayCell?.memories.length">
+      <div class="mt-5">
+        <p class="mb-2 text-label font-bold uppercase tracking-wide text-ink-muted">Memories</p>
+        <ul class="grid grid-cols-3 gap-3">
+          <template x-for="m in dayCell.memories" :key="m.id">
+            <li>
+              <button type="button" @click="dayCell = null; openViewer(m)" class="block aspect-square w-full overflow-hidden rounded-input transition-transform duration-200 hover:scale-105">
+                <img :src="m.photo_url" :alt="m.title" loading="lazy" decoding="async" class="h-full w-full object-cover">
+              </button>
+              <p class="mt-1 truncate text-[11px] font-bold text-ink-strong" x-text="m.title"></p>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- ==================================================================
+     ADMIN MODAL — cropper + details
+     ================================================================== -->
+<div x-show="admin.open" x-cloak class="fixed inset-0 z-50 overflow-y-auto p-4"
+     role="dialog" aria-modal="true" aria-labelledby="admin-title"
+     @keydown.escape.window="closeAdmin()" @click.self="closeAdmin()">
+  <div class="fixed inset-0 bg-ink-strong/45" aria-hidden="true"></div>
+
+  <div class="relative mx-auto my-8 w-full max-w-lg">
+    <div class="glass-strong rounded-card p-6">
+      <div class="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h2 id="admin-title" class="text-title" x-text="admin.editing ? 'Edit memory' : 'Add a memory'"></h2>
+          <p class="text-label text-ink-muted" x-text="adminStep"></p>
+        </div>
+        <button type="button" @click="closeAdmin()" aria-label="Close"
+                class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white/40 text-ink-strong transition-colors hover:bg-white/65">
+          <span x-html="ic('x', 20)"></span>
+        </button>
+      </div>
+
+      <div x-show="adminError" role="alert"
+           class="mb-4 rounded-input border-[1.5px] border-destructive bg-white/55 p-3 text-label text-ink-strong"
+           x-text="adminError"></div>
+
+      <!-- step 1: choose -->
+      <div x-show="admin.step === 'pick'">
+        <label for="photo-input"
+               class="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-rose-mid bg-white/30 px-6 py-10 text-center transition-colors hover:bg-white/50">
+          <span class="text-ink-muted" x-html="ic('upload', 34)"></span>
+          <span class="text-title">Choose a photo</span>
+          <span class="text-label text-ink-muted">JPEG, PNG or WebP · up to 25 MB</span>
+          <input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" @change="onFilePicked($event)">
+        </label>
+        <p class="mt-3 text-center text-label text-ink-muted">Square cards keep the whole grid even.</p>
+      </div>
+
+      <!-- step 2: crop -->
+      <div x-show="admin.step === 'crop'">
+        <div class="relative mx-auto max-h-[52vh] w-fit">
+          <img x-ref="cropImage" alt="" class="max-h-[52vh] select-none">
+        </div>
+
+        <div class="mt-4 flex items-center justify-center gap-2">
+          <button type="button" @click="cropRotate()" class="inline-flex min-h-11 items-center gap-2 rounded-input bg-white/55 px-3 text-label font-bold text-ink-strong transition-colors hover:bg-white/80">
+            <span x-html="ic('rotate', 16)"></span> Rotate
+          </button>
+          <button type="button" @click="cropReset()" class="inline-flex min-h-11 items-center gap-2 rounded-input bg-white/55 px-3 text-label font-bold text-ink-strong transition-colors hover:bg-white/80">
+            <span x-html="ic('cropReset', 16)"></span> Reset
+          </button>
+          <button type="button" @click="admin.step = 'pick'; cropTeardown()" class="inline-flex min-h-11 items-center gap-2 rounded-input bg-white/55 px-3 text-label font-bold text-ink-strong transition-colors hover:bg-white/80">
+            <span x-html="ic('retry', 16)"></span> Change photo
+          </button>
+        </div>
+
+        <p class="mt-3 text-center text-label text-ink-muted">
+          Drag to reposition · pinch or scroll to zoom
+        </p>
+
+        <button type="button" @click="confirmCrop()"
+                class="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-input bg-rose-deep text-body font-bold text-white transition-all duration-200 hover:bg-rose-800 hover:shadow-lift active:scale-[0.98]">
+          <span x-text="cropBusy ? 'Preparing…' : 'Use this photo'"></span>
+        </button>
+      </div>
+
+      <!-- step 3: details -->
+      <form x-show="admin.step === 'details'" class="space-y-4" @submit.prevent="saveMemory()" novalidate>
+        <img :src="admin.preview" alt="Preview of the cropped memory" class="mx-auto aspect-square w-40 rounded-card object-cover">
+
+        <div>
+          <label for="m-title" class="mb-1.5 block text-label font-bold text-ink-strong">Title</label>
+          <input id="m-title" type="text" x-model="admin.form.title" maxlength="255"
+                 :aria-invalid="admin.errors.title ? 'true' : 'false'"
+                 class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          <p x-show="admin.errors.title" class="mt-1 text-label font-bold text-destructive" x-text="admin.errors.title"></p>
+        </div>
+
+        <div>
+          <label for="m-letter" class="mb-1.5 block text-label font-bold text-ink-strong">Your letter</label>
+          <textarea id="m-letter" rows="6" x-model="admin.form.letter_text"
+                    :aria-invalid="admin.errors.letter_text ? 'true' : 'false'"
+                    class="w-full rounded-input bg-white/55 px-4 py-3 font-display text-lg leading-relaxed text-ink-strong focus:bg-white/75"></textarea>
+          <p x-show="admin.errors.letter_text" class="mt-1 text-label font-bold text-destructive" x-text="admin.errors.letter_text"></p>
+        </div>
+
+        <div>
+          <label for="m-date" class="mb-1.5 block text-label font-bold text-ink-strong">
+            Memory date <span class="font-medium text-ink-muted">(optional)</span>
+          </label>
+          <input id="m-date" type="date" x-model="admin.form.memory_date"
+                 class="w-full rounded-input bg-white/55 px-4 py-3 text-body text-ink-strong focus:bg-white/75">
+          <p class="mt-1 text-label text-ink-muted">Adds this memory to that day in the calendar.</p>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button type="submit" :disabled="saveBusy"
+                  class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-input bg-rose-deep text-body font-bold text-white transition-all duration-200 hover:bg-rose-800 active:scale-[0.98] disabled:opacity-60">
+            <span x-show="saveBusy" x-html="ic('loader', 16, 'animate-spin')"></span>
+            <span x-text="saveBusy ? 'Saving…' : (admin.editing ? 'Save changes' : 'Add memory')"></span>
+          </button>
+          <button type="button" @click="closeAdmin()" class="min-h-11 rounded-input bg-white/55 px-5 text-body font-bold text-ink-strong transition-colors hover:bg-white/80">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================
+     MUSIC BAR — fixed bottom. Plays uploaded files, YouTube embeds, and
+     hands off to Spotify (which third-party sites cannot embed).
+     ================================================================== -->
+<div x-show="authed" x-cloak
+     class="fixed inset-x-0 bottom-0 z-30 border-t border-white/25 bg-white/30 px-3 py-2 backdrop-blur-xl"
+     role="region" aria-label="Background music">
+
+  <!-- YouTube popover. YouTube requires a real visible player — it cannot be
+       faked as audio-only — so it opens above the bar rather than inside it. -->
+  <div x-show="music.popoverOpen" x-cloak x-transition.opacity.duration.200ms
+       class="mx-auto mb-2 w-full max-w-6xl">
+    <div class="glass-strong rounded-card p-3">
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <p class="min-w-0 truncate text-label font-bold text-ink-strong">
+          <span x-text="music.track?.title || ''"></span>
+          <span class="ml-1 font-medium text-ink-muted">YouTube</span>
+        </p>
+        <button type="button" @click="musicClosePopover()" aria-label="Close player"
+                class="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white/50 text-ink-strong transition-colors hover:bg-white/80">
+          <span x-html="ic('x', 18)"></span>
+        </button>
+      </div>
+      <!-- YT.Player replaces a child of this node with its iframe. -->
+      <div x-ref="ytMount" class="aspect-video w-full overflow-hidden rounded-input bg-ink-strong/80"></div>
+    </div>
+  </div>
+
+  <div class="mx-auto flex max-w-6xl items-center gap-3">
+
+    <div x-show="!music.ready" class="flex min-w-0 flex-1 items-center gap-2 text-label text-ink-muted">
+      <span x-html="ic('music', 16)"></span>
+      <span class="truncate">Add a track from the Music tab</span>
+    </div>
+
+    <template x-if="music.ready">
+      <div class="flex min-w-0 flex-1 items-center gap-3">
+        <div class="flex shrink-0 items-center gap-1">
+          <!-- Spotify: hand-off, not playback. -->
+          <button type="button" x-show="!music.playable" @click="musicOpenSpotify()"
+                  aria-label="Open this track in Spotify"
+                  class="inline-flex size-11 items-center justify-center rounded-full bg-[#1DB954] text-white transition-transform duration-200 hover:scale-105 active:scale-95">
+            <span x-html="ic('external', 18)"></span>
+          </button>
+
+          <button type="button" x-show="music.playable &amp;&amp; music.sourceType !== 'youtube'"
+                  @click="musicPrev()" aria-label="Previous track"
+                  class="inline-flex size-11 items-center justify-center rounded-full text-ink-strong transition-colors duration-200 hover:bg-white/50">
+            <span x-html="ic('prev', 18)"></span>
+          </button>
+
+          <button type="button" @click="musicToggle()"
+                  :aria-label="!music.playable ? 'Open in Spotify' : music.playing ? 'Pause music' : 'Play music'"
+                  class="inline-flex size-11 items-center justify-center rounded-full transition-transform duration-200 active:scale-95"
+                  :class="music.playable ? 'bg-rose-deep text-white glow hover:bg-rose-800' : 'bg-[#1DB954] text-white hover:brightness-110'">
+            <span x-html="ic(!music.playable ? 'external' : music.playing ? 'pause' : 'play', 20)"></span>
+          </button>
+
+          <!-- The YouTube iframe must exist before it can be played, so
+               revealing the player is a prerequisite, not a preference. -->
+          <button type="button" x-show="music.sourceType === 'youtube' &amp;&amp; !music.popoverOpen"
+                  @click="musicOpenPopover()" aria-label="Show the YouTube player"
+                  class="inline-flex size-11 items-center justify-center rounded-full bg-white/55 text-ink-strong transition-colors hover:bg-white/80">
+            <span x-html="ic('chevronRight', 18)"></span>
+          </button>
+
+          <button type="button" x-show="music.playable &amp;&amp; music.sourceType !== 'youtube'"
+                  @click="musicNext()" aria-label="Next track"
+                  class="inline-flex size-11 items-center justify-center rounded-full text-ink-strong transition-colors duration-200 hover:bg-white/50">
+            <span x-html="ic('next', 18)"></span>
+          </button>
+        </div>
+
+        <!-- Live analyser for uploaded files. A static equaliser stands in for
+             YouTube, whose cross-origin audio cannot reach an AnalyserNode. -->
+        <canvas x-ref="viz" class="hidden h-9 w-24 shrink-0 sm:block" aria-hidden="true"></canvas>
+
+        <div class="min-w-0 flex-1">
+          <p class="flex items-center gap-1.5">
+            <span class="truncate text-label font-bold text-ink-strong" x-text="music.track?.title || ''"></span>
+            <span x-show="music.track?.source_type"
+                  class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                  :class="{
+                    'bg-ink/10 text-ink-muted': music.track?.source_type === 'file',
+                    'bg-[#DC2626]/15 text-[#991B1B]': music.track?.source_type === 'youtube',
+                    'bg-[#1DB954]/20 text-[#0B6B33]': music.track?.source_type === 'spotify'
+                  }"
+                  x-text="music.track?.source_type === 'youtube' ? 'YouTube' : music.track?.source_type === 'spotify' ? 'Spotify' : 'File'"></span>
+          </p>
+          <select @change="musicSelect($event.target.value)"
+                  class="mt-0.5 w-full cursor-pointer bg-transparent text-[11px] text-ink-muted outline-none"
+                  aria-label="Choose a track">
+            <template x-for="(t, i) in music.tracks" :key="t.source">
+              <option :value="i" :selected="i === music.index" x-text="t.title"></option>
+            </template>
+          </select>
+        </div>
+
+        <div x-show="music.playable" class="hidden shrink-0 items-center gap-1 sm:flex">
+          <button type="button" @click="musicMute()" :aria-label="music.muted ? 'Unmute' : 'Mute'"
+                  class="inline-flex size-11 items-center justify-center rounded-full text-ink-strong transition-colors hover:bg-white/50">
+            <span x-html="ic(music.muted || music.volume === 0 ? 'volumeMute' : music.volume &lt; 0.5 ? 'volumeLow' : 'volumeHigh', 18)"></span>
+          </button>
+          <input type="range" min="0" max="1" step="0.05" :value="music.volume"
+                 @input="musicVolume($event.target.value)"
+                 class="w-20 cursor-pointer accent-rose-deep" aria-label="Volume">
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<script src="js/vendor/cropper.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.17.4/dist/cdn.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

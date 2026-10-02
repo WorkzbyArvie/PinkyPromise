@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# Uploaded to Vercel as part of the source tree.
+# Everything here MUST exist at runtime, so be careful what you exclude.
+#
+# NOTE: the vercel-php runtime does NOT support `includeFiles` — it ships the
+# whole project tree. PHP helpers therefore live in /lib, NOT /api, because
+# every .php under /api is compiled into its own serverless function.
+# ---------------------------------------------------------------------------
+
+# Never upload secrets
+.env
+.env.*
+!.env.example
+
+# Build tooling — re-installed by Vercel
+node_modules/
+
+# Generated CSS is rebuilt by buildCommand on every deploy
+css/app.css
+
+# Git / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db
+
+# Local-only files
+router.php
+test.mjs
+test-sources.mjs
+
+# Design docs (not needed by the runtime)
+DESIGN-SYSTEM.md
+design-system/
