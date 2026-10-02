@@ -155,11 +155,11 @@ export function createCropper({ onUpdate }) {
 
     // Upload sequentially so a mid-way failure is easy to reason about.
     onUpdate?.({ phase: 'uploading', step: 1, of: 2 });
-    const cardUpload = await uploadApi.image(cardBlob, 'card');
+    const cardUpload = await uploadApi.image(cardBlob, 'photo', 'card');
     uploaded.push(cardUpload.path);
 
     onUpdate?.({ phase: 'uploading', step: 2, of: 2 });
-    const originalUpload = await uploadApi.image(originalBlob, 'original');
+    const originalUpload = await uploadApi.image(originalBlob, 'photo', 'original');
     uploaded.push(originalUpload.path);
 
     // Success — these now belong to the card row, so stop tracking them.

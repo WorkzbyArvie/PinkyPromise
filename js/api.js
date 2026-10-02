@@ -26,7 +26,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, form, signal } = {}) {
+async function request(path, { method = 'GET', body, raw, signal } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   if (signal) signal.addEventListener('abort', () => controller.abort());
@@ -39,8 +39,12 @@ async function request(path, { method = 'GET', body, form, signal } = {}) {
     headers,
   };
 
-  if (form) {
-    init.body = form; // let the browser set the multipart boundary
+  if (raw instanceof Blob) {
+    // Send the file as the request body. Deliberately NOT FormData: a
+    // multipart body makes PHP write a temp file, which we don't want.
+    // A File/Blob body streams without loading into memory.
+    headers['Content-Type'] = raw.type || 'application/octet-stream';
+    init.body = raw;
   } else if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
@@ -85,7 +89,8 @@ export const api = {
   post: (p, body, o) => request(p, { ...o, method: 'POST', body }),
   patch: (p, body, o) => request(p, { ...o, method: 'PATCH', body }),
   del: (p, body, o) => request(p, { ...o, method: 'DELETE', body }),
-  upload: (p, form, o) => request(p, { ...o, method: 'POST', form }),
+  /** Send a File/Blob as the raw request body (never multipart). */
+  send: (p, blob, o) => request(p, { ...o, method: 'POST', raw: blob }),
 };
 
 /* ------------------------------------------------------------------ *
@@ -136,17 +141,17 @@ export const settingsApi = {
 };
 
 export const uploadApi = {
-  image: (file, variant) => {
-    const form = new FormData();
-    form.append('photo', file);
-    if (variant) form.append('variant', variant);
-    return api.upload('/api/upload', form);
+  /**
+   * Upload a File as the raw request body.
+   * @param {File|Blob} file
+   * @param {'photo'|'audio'} kind
+   * @param {string} [variant] e.g. 'card' | 'original' | 'audio'
+   */
+  image: (file, kind = 'photo', variant = 'card') => {
+    const q = new URLSearchParams({ kind });
+    if (variant) q.set('variant', variant);
+    return api.send(`/api/upload?${q}`, file);
   },
-  /** Audio upload — same streaming endpoint, wider allowlist, no crop step. */
-  audio: (file) => {
-    const form = new FormData();
-    form.append('audio', file);
-    return api.upload('/api/upload', form);
-  },
+  audio: (file) => api.send(`/api/upload?kind=audio`, file),
   remove: (path) => api.del('/api/upload', { path }),
 };

@@ -45,14 +45,32 @@ node scripts/verify-rls.mjs   # prove the anon key cannot reach your data
 1. **Supabase** — the migrations create every table; you don't paste SQL by hand.
 2. Create a **public** storage bucket (default `recon-media`).
 3. Copy `.env.example` → `.env` and fill in the values.
-4. Install PHP and run locally:
+4. Install PHP with `pdo_pgsql`, then run locally:
 
    ```bash
-   winget install PHP.PHP.8.5
    php -S localhost:8000 router.php
    ```
 
-5. Set the same variables in Vercel, then `vercel deploy`.
+   On Windows/XAMPP, `pdo_pgsql` ships with XAMPP but is commented out in
+   `php.ini`. Enable it:
+
+   ```ini
+   extension=pdo_pgsql
+   ```
+
+5. Choose your passcode once. Until this runs, the app has no way in:
+
+   ```bash
+   curl -X POST http://localhost:8000/api/auth-bootstrap \
+     -H "Content-Type: application/json" \
+     -H "x-setup-token: $APP_SETUP_TOKEN" \
+     -d '{"passcode":"YOUR-PASSCODE","anchor_date":"2024-02-14"}'
+   ```
+
+   It returns 409 if a passcode already exists — the endpoint closes
+   permanently once set. To start over: `npm run db:reset-passcode`.
+
+6. Set the same variables in Vercel, then `vercel deploy`.
 
 ### Database connection: use port 6543
 
@@ -61,9 +79,26 @@ Vercel serverless invocation would hold its own dedicated Postgres connection
 and you'd exhaust the connection limit under concurrency. Use the
 **transaction-mode** pooler on `6543`.
 
-The pooler also drops idle connections aggressively, so `scripts/db.mjs`
-connects with backoff and builds a fresh client per attempt (`pg` refuses a
-second `connect()` on the same instance).
+Two consequences, both handled in `lib/db.php`:
+
+- `PDO::ATTR_EMULATE_PREPARES` **must** be `true`. Real prepared statements bind
+  to one backend connection, which doesn't survive the pooler handing the
+  request to a different backend.
+- The pooler drops idle connections, so `db()` **retries with backoff**. Without
+  it, roughly every other cold request 503s — a bug this caught during testing.
+  `scripts/db.mjs` does the same for the Node tooling.
+
+### Uploads use a raw request body, not multipart
+
+`php://input` is **unavailable** for `multipart/form-data` — PHP consumes it to
+populate `$_FILES`, writing a temp file first. That would put user data on local
+disk, which Rule 1 forbids and which is pointless on Vercel where the filesystem
+is read-only.
+
+So the client sends the `File` as the raw body and the kind/variant as query
+params. The bytes go from the browser straight to Supabase through curl's
+`READFUNCTION`; nothing is buffered, nothing is written to disk, and a 4 MB
+upload costs a few KB of memory.
 
 ## Security model
 
@@ -152,11 +187,52 @@ cross-origin media. Spotify can't be embedded by third-party sites at all. See
 ## Tests
 
 ```bash
-node test.mjs          # 37 — countdown date math, calendar grid, jar, validation
-node test-sources.mjs  # 30 — YouTube/Spotify/audio URL parsing
+npm test            # 67 unit tests — date math, calendar grid, jar, validation, URL parsing
+npm run test:api    # 57 end-to-end tests against a live PHP server + real Supabase
+npm run db:verify   # live check that the anon key cannot read your data
 ```
 
-`scripts/verify-rls.mjs` is a live integration test against the real database.
+`npm run test:api` needs the server running (`php -S localhost:8000 router.php`)
+and covers the real auth flow, every endpoint, and the rejection paths — invalid
+enums, impossible dates like `2024-02-31`, path traversal, MIME sniffing,
+oversized ranges, and every auth gate. It sets a throwaway passcode; run
+`npm run db:reset-passcode` afterwards to choose your real one.
+
+## API
+
+All endpoints return `{ ok, data }` or `{ ok: false, error: { code, message, fields? } }`.
+Every endpoint except `/api/health` and the GET arm of `/api/auth` requires the
+session cookie.
+
+| Endpoint | Methods | Purpose |
+|---|---|---|
+| `/api/health` | GET | Deployment diagnostics; also the daily cron target |
+| `/api/auth` | GET, POST | Session status; passcode login |
+| `/api/auth-bootstrap` | POST | One-time passcode + anchor-date setup |
+| `/api/auth-logout` | POST | Clear the session cookie |
+| `/api/cards` | GET, POST, PATCH, DELETE | Memory photocards |
+| `/api/calendar` | GET, POST, PATCH, DELETE | Events; GET takes `from`/`to` |
+| `/api/decks` | GET, POST, PATCH, DELETE | Heart deck cards |
+| `/api/tracks` | GET, POST, PATCH, DELETE | Music bar tracks |
+| `/api/settings` | GET, PATCH, POST | Settings; POST changes the passcode |
+| `/api/upload` | POST, DELETE | Stream a file to storage; DELETE removes an object |
+
+## Security notes
+
+- Every SQL call uses PDO prepared statements with `ATTR_EMULATE_PREPARES`.
+- Uploads stream from the client straight to storage — **no** `move_uploaded_file`,
+  no temp file, nothing written to the read-only local filesystem.
+- Upload paths are random hex; the user's filename never reaches the storage
+  path, and `storage_path_is_safe()` re-validates the shape before any delete.
+- The passcode is a bcrypt hash in Postgres and never reaches the browser. The
+  session is an HMAC-signed httpOnly cookie bound to a passcode fingerprint, so
+  changing the passcode invalidates every existing session immediately — with no
+  session table to keep in sync across instances.
+- `/api/auth-bootstrap` verifies the setup token **before** reporting whether
+  setup is still needed, so an unauthorised caller can't probe app state.
+- `passcode_hash` is never returned by `/api/settings`, and is not writable.
+- CSP is set in `lib/bootstrap.php`; `api/php.ini` sets
+  `disable_functions` for anything that could shell out.
 
 ## Security notes
 

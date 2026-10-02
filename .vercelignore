@@ -29,9 +29,11 @@ Thumbs.db
 
 # Local-only files
 router.php
-test.mjs
-test-sources.mjs
 
 # Design docs (not needed by the runtime)
 DESIGN-SYSTEM.md
 design-system/
+
+# Dev-only Node tooling. Uses the `pg` devDependency and is never executed
+# by a PHP function, so there is no reason to ship it.
+scripts/
