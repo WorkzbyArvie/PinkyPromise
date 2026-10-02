@@ -145,11 +145,15 @@
 /*
  * Backing layer behind a dialog.
  *
- * The blur is the point: opening a modal should visibly push the page back.
- * 10px is enough to read as depth without making the page unrecognisable, and
- * the dim on top guarantees separation even where backdrop-filter is unsupported
- * (older Safari, or anything that drops the property) — the dialog still reads
- * as the only interactive thing on screen.
+ * The dialog is white, so the page behind it must go DARK — not "slightly
+ * dimmed". 0.78 of near-black plum leaves the page clearly readable as context
+ * while making the white panel the unambiguous subject. The earlier 0.42 was
+ * too timid to separate anything, and the blur alone does not read as contrast
+ * on a light pastel background.
+ *
+ * The blur is additive on top of that: it removes the fine detail that makes a
+ * light page compete with text on white, so the panel reads as the only sharp
+ * thing on screen.
  *
  * Both the prefixed and unprefixed properties are written. Lightning CSS prunes
  * one of them against the configured browser targets, and a pruned
@@ -157,9 +161,9 @@
  * like the bug being fixed here.
  */
 @utility modal-scrim {
-  background: rgb(107 18 51 / 0.42);
-  backdrop-filter: blur(10px) saturate(85%);
-  -webkit-backdrop-filter: blur(10px) saturate(85%);
+  background: rgb(48 8 32 / 0.78);
+  backdrop-filter: blur(14px) saturate(70%) brightness(0.7);
+  -webkit-backdrop-filter: blur(14px) saturate(70%) brightness(0.7);
 }
 
 /*

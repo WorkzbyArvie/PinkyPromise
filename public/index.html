@@ -608,6 +608,11 @@
 
     <footer class="pt-4 pb-8 text-center text-label text-ink-muted">
       Kept just for us.
+      <!-- The deployed commit, so "am I looking at the new build?" never has to
+           be guessed. Muted and small on purpose. -->
+      <p class="mt-1 text-[11px] opacity-60">
+        build <span x-text="buildShort" class="font-mono"></span>
+      </p>
     </footer>
   </main>
 </div>

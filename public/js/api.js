@@ -97,6 +97,17 @@ export const api = {
  * Endpoint wrappers — one per route, so call sites stay readable.
  * ------------------------------------------------------------------ */
 
+export const versionApi = {
+  /**
+   * Which build is serving this page.
+   *
+   * Unauthenticated on purpose: the commit SHA is public in the repository, and
+   * this has to answer before the lock screen so a stale build can be spotted
+   * even when locked out.
+   */
+  get: () => api.get('/api/version'),
+};
+
 export const authApi = {
   status: () => api.get('/api/auth'),
   login: (passcode) => api.post('/api/auth', { passcode }),

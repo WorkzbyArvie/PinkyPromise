@@ -103,6 +103,7 @@ await check('the API still responds with JSON', async () => {
 const CLIENT_ROUTES = [
   'auth',
   'health',
+  'version',
   'cards',
   'calendar',
   'decks',

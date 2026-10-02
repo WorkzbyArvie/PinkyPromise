@@ -15,6 +15,7 @@
 
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -254,6 +255,60 @@ check('.env is gitignored', () => {
   if (!existsSync(path.join(root, '.gitignore'))) return;
   const raw = readFileSync(path.join(root, '.gitignore'), 'utf8');
   assert.match(raw, /^\.env$/m, '.env is not gitignored');
+});
+
+section('build stamp');
+
+/*
+ * /api/version reports the commit Vercel is actually serving, from an
+ * environment variable set at runtime. A build stamp committed into the repo
+ * cannot work: committing the stamp changes the SHA it is supposed to contain.
+ * Asking the server is exact and needs no build step.
+ */
+check('api/version.php exists and reports the runtime commit', () => {
+  const file = path.join(root, 'api', 'version.php');
+  assert.ok(existsSync(file), 'api/version.php is missing');
+  const raw = readFileSync(file, 'utf8');
+  assert.match(
+    raw,
+    /VERCEL_GIT_COMMIT_SHA/,
+    'version.php must read VERCEL_GIT_COMMIT_SHA or it cannot name the build',
+  );
+});
+
+check('api/version.php stays unauthenticated so it works while locked out', () => {
+  const raw = readFileSync(path.join(root, 'api', 'version.php'), 'utf8');
+  assert.ok(
+    !/require_auth\s*\(/.test(raw),
+    'version.php calls require_auth() — the footer would read "offline" behind ' +
+      'the lock screen, which is exactly when a stale build needs identifying',
+  );
+});
+
+check('the footer shows the build and the client calls /api/version', () => {
+  const html = readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+  assert.match(html, /buildShort/, 'the footer does not render the build number');
+
+  const client = readFileSync(path.join(root, 'public', 'js', 'api.js'), 'utf8');
+  assert.match(client, /\/api\/version/, 'api.js has no /api/version client');
+
+  const app = readFileSync(path.join(root, 'public', 'js', 'app.js'), 'utf8');
+  assert.match(app, /versionApi/, 'app.js never calls versionApi');
+});
+
+check('/api/version is a real endpoint, not just a file', async () => {
+  const base = process.env.TEST_BASE || 'http://127.0.0.1:8000';
+  let res;
+  try {
+    res = await fetch(`${base}/api/version`);
+  } catch {
+    return; // server not running; the static checks above still apply
+  }
+  assert.notEqual(res.status, 404, '/api/version returned 404');
+  const body = await res.json();
+  assert.equal(body.ok, true, 'version envelope was not ok');
+  assert.ok(typeof body.data.short === 'string', 'no short SHA reported');
+  assert.ok(body.data.short.length > 0, 'short SHA was empty');
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

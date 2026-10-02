@@ -21,7 +21,7 @@
  */
 
 import Alpine from './vendor/alpine.esm.js';
-import { authApi, cardsApi, calendarApi, decksApi, settingsApi, tracksApi, uploadApi } from './api.js';
+import { authApi, cardsApi, calendarApi, decksApi, settingsApi, tracksApi, uploadApi, versionApi } from './api.js';
 import { icon, EVENT_EMOJI, EVENT_LABEL, DECK_META } from './icons.js';
 import { parseAnchor, startCountdown } from './countdown.js';
 import { typewriter, caret } from './cardflip.js';
@@ -139,6 +139,14 @@ function appShell() {
       popoverOpen: false, progress: 0, error: null, listError: null,
       elapsed: 0, duration: 0,
     },
+    /* Deployed commit, from /api/version. Shown in the footer so a stale bundle
+       is obvious rather than a mystery. "local" locally, "unknown" if the
+       endpoint is missing, which is itself the answer. */
+    build: { short: '…', env: null },
+    get buildShort() {
+      return this.build.short;
+    },
+
     trackSources: TRACK_SOURCES,
     trackForm: { title: '', source_type: 'file', url: '', file: null },
     trackError: null,
@@ -182,11 +190,31 @@ function appShell() {
 
     /* ======================== lifecycle =========================== */
 
+    /**
+     * Ask the server which commit is serving this page.
+     *
+     * Reported rather than fetched inline at boot, because a failure here must
+     * never block the app — the whole point is to answer "am I looking at the
+     * build I think I am?", and a network blip is not that.
+     */
+    async _loadBuild() {
+      try {
+        const info = await versionApi.get();
+        this.build = { short: info?.short ?? 'unknown', env: info?.env ?? null };
+      } catch {
+        this.build = { short: 'offline', env: null };
+      }
+    },
+
     async boot() {
       this.bootError = null;
       this._makeHearts();
       this._jar = createJar();
       this._watchHeader();
+
+      // Fire and forget: the footer build number is diagnostics, and boot must
+      // not wait on it or fail because of it.
+      this._loadBuild();
 
       if (this.demoMode) {
         this._loadDemo();
