@@ -36,13 +36,15 @@ can see all three playback behaviours.
 
 ## Run the real thing
 
-1. **Supabase** — create a project, then run the SQL files in order:
-   `db/001_schema.sql`, `db/002_settings.sql`, `db/004_tracks.sql`.
+```bash
+node scripts/migrate.mjs      # apply db/*.sql in order
+node scripts/status.mjs       # row counts, decks, settings
+node scripts/verify-rls.mjs   # prove the anon key cannot reach your data
+```
+
+1. **Supabase** — the migrations create every table; you don't paste SQL by hand.
 2. Create a **public** storage bucket (default `recon-media`).
-3. Copy `.env.example` → `.env` and fill in the values:
-   - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — dashboard → API Keys
-   - `DATABASE_URL` — **use port `6543`** (transaction mode) for serverless.
-     Port `5432` is session mode and will exhaust your connection limit.
+3. Copy `.env.example` → `.env` and fill in the values.
 4. Install PHP and run locally:
 
    ```bash
@@ -51,14 +53,45 @@ can see all three playback behaviours.
    ```
 
 5. Set the same variables in Vercel, then `vercel deploy`.
-6. Bootstrap the passcode once:
 
-   ```bash
-   curl -X POST https://your-app.vercel.app/api/auth-bootstrap \
-     -H "Content-Type: application/json" \
-     -H "x-setup-token: $APP_SETUP_TOKEN" \
-     -d '{"passcode":"YOUR-PASSCODE","anchor_date":"2024-02-14"}'
-   ```
+### Database connection: use port 6543
+
+Supabase's dashboard shows `5432` by default — that's **session mode**. Every
+Vercel serverless invocation would hold its own dedicated Postgres connection
+and you'd exhaust the connection limit under concurrency. Use the
+**transaction-mode** pooler on `6543`.
+
+The pooler also drops idle connections aggressively, so `scripts/db.mjs`
+connects with backoff and builds a fresh client per attempt (`pg` refuses a
+second `connect()` on the same instance).
+
+## Security model
+
+The app **never uses the public anon key**. PHP connects to Postgres as
+`postgres` over the pooler and uses the `service_role` key only for Storage
+uploads. Nothing in the browser needs an anon key — which means the anon key is
+a liability rather than an asset, since it's designed to be public.
+
+Data is protected at **two independent layers**, because either alone leaves a
+gap the other covers:
+
+| Layer | What it stops | Gap it leaves |
+|---|---|---|
+| RLS enabled, zero policies | Row reads/writes via PostgREST | **`TRUNCATE` is not subject to RLS at all** |
+| `REVOKE ALL … FROM anon, authenticated` | Everything, including `TRUNCATE` | Nothing — belt and braces |
+
+`node scripts/verify-rls.mjs` asserts both halves by seeding a probe row and
+checking what the anon key can actually reach. It caught two real bugs during
+development: `audio_tracks` shipped without RLS enabled, and `app_settings`
+needed a `TRUNCATE` revoke.
+
+### Rotate your keys
+
+The `service_role` key bypasses RLS entirely and the Postgres password is the
+superuser account. Both are in `.env`, which is gitignored — but if either ever
+lands in a commit, a public repo, or a chat log, **rotate it in the Supabase
+dashboard**. Git history makes a leaked credential effectively permanent even
+after deletion.
 
 ## How it's laid out
 
@@ -122,6 +155,8 @@ cross-origin media. Spotify can't be embedded by third-party sites at all. See
 node test.mjs          # 37 — countdown date math, calendar grid, jar, validation
 node test-sources.mjs  # 30 — YouTube/Spotify/audio URL parsing
 ```
+
+`scripts/verify-rls.mjs` is a live integration test against the real database.
 
 ## Security notes
 

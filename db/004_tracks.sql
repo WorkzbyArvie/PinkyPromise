@@ -55,6 +55,12 @@ create table if not exists audio_tracks (
 create index if not exists audio_tracks_position_idx
   on audio_tracks (position asc, created_at desc);
 
+-- Same RLS posture as 001: enabled, zero policies, so the public anon key is
+-- denied. (005_security_hardening.sql also covers databases created before
+-- this line existed.)
+alter table audio_tracks enable row level security;
+drop policy if exists audio_tracks_read on audio_tracks;
+
 -- ---------------------------------------------------------------
 -- Optional starter content. Remove or edit as you like.
 -- ---------------------------------------------------------------
