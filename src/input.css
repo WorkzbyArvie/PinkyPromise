@@ -118,6 +118,56 @@
   box-shadow: var(--shadow-glass);
 }
 
+/*
+ * MODAL SURFACE — deliberately NOT glass.
+ *
+ * `.glass-strong` (28% white) was reused for modals, and 28% is not a surface,
+ * it is a tint. Everything behind a dialog stayed legible through it: the tab
+ * strip, the "no memories yet" placeholder, the photo picker and the footer all
+ * showed through the Settings panel and collided with the form labels. A dialog
+ * is a place the user is supposed to be able to read.
+ *
+ * So this is opaque. The frosting survives only as a highlight along the top
+ * edge, which is what actually reads as "glass" to the eye — the see-through
+ * body was never the desirable part.
+ */
+@utility modal-surface {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.94), rgb(255 255 255 / 0.84)),
+    var(--color-blush-soft);
+  border: 1px solid rgb(255 255 255 / 0.7);
+  box-shadow:
+    var(--shadow-lift),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+
+/*
+ * Backing layer behind a dialog. Dims and blurs so it is obvious where focus
+ * belongs, and so the opaque modal surface has contrast to sit against.
+ */
+@utility modal-scrim {
+  background: rgb(107 18 51 / 0.55);
+  backdrop-filter: blur(3px) saturate(90%);
+  -webkit-backdrop-filter: blur(3px) saturate(90%);
+}
+
+/*
+ * Opaque-backed glass for the fixed music bar.
+ *
+ * Same problem as `.glass-sticky` and the same fix: the bar sat at 30% white
+ * over scrolling content, so cards and letters read straight through the
+ * transport controls. A control you cannot read is worse than no frosting, so
+ * the body is opaque and only the top hairline stays translucent.
+ */
+@utility overlay-sticky {
+  background:
+    linear-gradient(rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.5)),
+    var(--color-blush-soft);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border-color: rgb(255 255 255 / 0.45);
+}
+
 /* Soft rose glow — reserved for focus, active bar, and the jar. */
 @utility glow {
   box-shadow: var(--shadow-glow);

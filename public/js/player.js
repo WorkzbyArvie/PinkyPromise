@@ -82,6 +82,9 @@ export function createPlayer({ onState } = {}) {
   let tracks = [];
   let index = 0;
   let lastError = null;
+// Failure to LOAD the list, as opposed to a playback failure. Kept apart so
+// "the server is unreachable" never masquerades as "you have no songs".
+let listError = null;
   let progressTimer = 0;
 
   function current() {
@@ -102,6 +105,10 @@ export function createPlayer({ onState } = {}) {
     volume: audio.volume,
     muted: sourceType() === 'youtube' ? ytMuted() : audio.muted,
     error: lastError,
+    // Separate from `error`, which is a PLAYBACK failure. This is the list
+    // failing to load at all — previously indistinguishable from "no tracks",
+    // so a broken /api/tracks rendered as an empty playlist with no message.
+    listError: listError || null,
     sourceType: sourceType(),
     playable: tracks.length ? isPlayableInPage(sourceType()) : false,
     visualizer: tracks.length ? supportsVisualizer(sourceType()) : false,
@@ -539,7 +546,8 @@ export function createPlayer({ onState } = {}) {
 
     // Bundled manifest first, then anything saved through the admin panel.
     const fromManifest = await readManifest();
-    const saved = await readApiTracks();
+    const { tracks: saved, error } = await readApiTracks();
+    listError = error;
     tracks = dedupe([...saved, ...fromManifest]);
     if (tracks.length) load(0);
     emit();
@@ -568,16 +576,52 @@ export function createPlayer({ onState } = {}) {
   }
 
   async function readApiTracks() {
+    /*
+     * Returns { tracks, error } instead of collapsing every failure into [].
+     *
+     * The old version caught everything and returned an empty array, which made
+     * a failing request look exactly like a playlist with nothing in it: the
+     * Music tab said "No tracks yet" and nothing else, so a broken deployment
+     * looked like a working app that had forgotten its songs. A real failure now
+     * carries a reason the UI can show.
+     *
+     * An empty playlist and a failed request are genuinely different states and
+     * must not render the same.
+     */
+    let res;
     try {
-      const res = await fetch('/api/tracks', { credentials: 'same-origin' });
-      if (!res.ok) return [];
-      const body = await res.json();
-      const list = Array.isArray(body) ? body : (body?.tracks ?? []);
-      return list.filter((t) => t && t.source);
+      res = await fetch('/api/tracks', { credentials: 'same-origin' });
     } catch {
-      // Offline, demo mode, or the endpoint isn't deployed yet.
-      return [];
+      return { tracks: [], error: "Couldn't reach the server to load your tracks." };
     }
+
+    if (!res.ok) {
+      if (res.status === 401) {
+        return { tracks: [], error: 'Session expired — unlock again to see your tracks.' };
+      }
+      return {
+        tracks: [],
+        error: `Couldn't load your tracks (server error ${res.status}).`,
+      };
+    }
+
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      return { tracks: [], error: "The server sent something we couldn't read." };
+    }
+
+    if (body?.ok === false) {
+      return { tracks: [], error: body?.error?.message ?? "Couldn't load your tracks." };
+    }
+
+    const list = Array.isArray(body) ? body : (body?.data ?? body?.tracks ?? []);
+    if (!Array.isArray(list)) {
+      return { tracks: [], error: "The server sent an unexpected track list." };
+    }
+
+    return { tracks: list.filter((t) => t && t.source), error: null };
   }
 
   function dedupe(list) {
@@ -602,19 +646,27 @@ function setTracks(list) {
     return state();
   }
 
-  /** Called after the admin adds or removes a track. */
+  /**
+ * Called after the admin adds or removes a track.
+ *
+ * Returns the new state, like init() and setTracks(). It used to return
+ * undefined, so a caller could not tell whether the reload had succeeded —
+ * which is exactly the question "did my upload land?" needs answered.
+ */
   async function refresh() {
-    const saved = await readApiTracks();
     const fromManifest = await readManifest();
+    const { tracks: saved, error } = await readApiTracks();
+    listError = error;
     const keepIndex = index;
     tracks = dedupe([...saved, ...fromManifest]);
     if (!tracks.length) {
       index = 0;
       emit();
-      return;
+      return state();
     }
     index = Math.min(keepIndex, tracks.length - 1);
     load(index);
+    return state();
   }
 
   function destroy() {

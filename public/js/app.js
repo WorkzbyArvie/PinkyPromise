@@ -136,7 +136,7 @@ function appShell() {
     music: {
       ready: false, playing: false, track: null, index: 0, volume: 1, muted: false,
       tracks: [], sourceType: null, playable: false, visualizer: false,
-      popoverOpen: false, progress: 0, error: null,
+      popoverOpen: false, progress: 0, error: null, listError: null,
     },
     trackSources: TRACK_SOURCES,
     trackForm: { title: '', source_type: 'file', url: '', file: null },
@@ -432,11 +432,32 @@ function appShell() {
         }
 
         this.trackForm = { title: '', source_type: kind, url: '', file: null };
+
+        /*
+         * Prove it actually landed.
+         *
+         * The upload and the track row are two separate writes, and only the
+         * refresh reads them back. If the list request fails, the old code
+         * reported success and cleared the form, so a broken /api/tracks looked
+         * exactly like a successful add: the button spun, then nothing appeared
+         * and no error was ever shown. Now the absence of the new track is
+         * surfaced instead of silently swallowed.
+         */
+        if (this.music.listError) {
+          this.trackError =
+            'The track was saved, but the playlist could not be reloaded. '
+            + this.music.listError;
+        }
       } catch (err) {
         this.trackError = err.message || "Couldn't add that track.";
       } finally {
         this.trackBusy = false;
       }
+    },
+
+    /** Retry a failed track-list load without reloading the whole app. */
+    async reloadTracks() {
+      await this._player?.refresh();
     },
 
     async removeTrack(track) {
