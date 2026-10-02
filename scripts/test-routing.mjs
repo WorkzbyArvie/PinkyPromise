@@ -88,5 +88,65 @@ await check('the API still responds with JSON', async () => {
   assert.equal(body.ok, true, 'health envelope was not ok');
 });
 
+// ---------------------------------------------------------------------------
+// API route shape
+//
+// Vercel maps api/foo.php to /api/foo (cleanUrls). It never produces a nested
+// URL, so a client calling /api/upload/signed 404s in production no matter what
+// exists on disk. That shipped once already — the client asked for
+// /api/upload/signed while the file was api/upload-signed.php.
+//
+// These assert every route the frontend actually calls is reachable, so a
+// rename breaks the build instead of the upload.
+// ---------------------------------------------------------------------------
+
+const CLIENT_ROUTES = [
+  'auth',
+  'health',
+  'cards',
+  'calendar',
+  'decks',
+  'tracks',
+  'settings',
+  'upload',
+  'upload-signed',
+];
+
+console.log('\napi route shape');
+
+for (const route of CLIENT_ROUTES) {
+  await check(`/api/${route} resolves to a real endpoint`, async () => {
+    const res = await fetch(`${BASE}/api/${route}`, { method: 'POST', body: '{}' });
+    // Auth-gated endpoints answer 401, method-gated ones 405. What matters is
+    // that it is NOT 404, which would mean the file does not exist.
+    assert.notEqual(res.status, 404, `/api/${route} returned 404 — file missing or renamed`);
+    const body = await res.json().catch(() => null);
+    assert.ok(body?.error, `${route} did not answer with the standard error envelope`);
+  });
+}
+
+await check('the frontend calls routes that exist', async () => {
+  const res = await fetch(`${BASE}/js/api.js`);
+  const src = await res.text();
+  const called = [...src.matchAll(/`(\/api\/[a-z0-9-]+)/g)].map((m) => m[1]);
+  assert.ok(called.length > 0, 'found no /api routes referenced in api.js');
+
+  for (const route of new Set(called)) {
+    const res2 = await fetch(`${BASE}${route}`, { method: 'POST', body: '{}' });
+    assert.notEqual(
+      res2.status,
+      404,
+      `api.js calls ${route} but it 404s — endpoints are flat, e.g. /api/upload-signed`,
+    );
+  }
+});
+
+await check('a nested api path is rejected, not silently collapsed', async () => {
+  const res = await fetch(`${BASE}/api/upload/signed`, { method: 'POST', body: '{}' });
+  assert.equal(res.status, 404, 'expected the nested path to be refused');
+  const body = await res.json();
+  assert.equal(body.error.code, 'not_found');
+});
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

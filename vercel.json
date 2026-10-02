@@ -22,15 +22,16 @@
 
   "headers": [
     {
+      "comment": "NOT immutable. public/css/app.css and public/js/*.js keep stable filenames across commits (Tailwind runs locally and there is no build step on Vercel to content-hash them), so an immutable year-long cache means a redeploy keeps serving the PREVIOUS bundle and edits silently appear to do nothing. Revalidate every time instead: the cost is one conditional 304 per file, and it removes an entire class of 'my change vanished' debugging.",
       "source": "/css/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
       ]
     },
     {
       "source": "/js/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
       ]
     },
     {

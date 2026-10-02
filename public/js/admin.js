@@ -185,7 +185,84 @@ export function createCropper({ onUpdate }) {
     cropper.setCropBoxData({ left: box.left + dx, top: box.top + dy });
   }
 
-  return { load, commit, rotate, reset, nudge, teardown, cleanupUploads, get ready() { return Boolean(cropper); } };
+  /**
+   * Load an image by URL instead of a File, for re-cropping a card that
+   * already exists.
+   *
+   * Draws to an offscreen canvas first and reads it back, which normalises
+   * cross-origin images (the browser applies EXIF orientation) and surfaces a
+   * tainted-canvas failure HERE with a clear message, rather than as an opaque
+   * SecurityError from toBlob() later.
+   */
+  async function loadFromUrl(url, targetEl) {
+    if (!url) throw new Error('That photo has no image to re-crop.');
+    if (!targetEl) throw new Error('The crop area is not ready yet.');
+
+    teardown();
+
+    const img = await loadImageElement(url);
+    const blob = await imageToBlob(img);
+    return load(blob, targetEl);
+  }
+
+  /**
+   * Load a remote image via fetch → blob → object URL.
+   *
+   * Re-cropping reads from Supabase Storage, whose object GETs carry
+   * Access-Control-Allow-Origin. If that ever stops being true, this throws a
+   * readable error instead of a canvas SecurityError.
+   */
+  async function loadImageElement(url) {
+    let blob;
+    try {
+      const res = await fetch(url, { mode: 'cors' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      blob = await res.blob();
+    } catch {
+      throw new Error("Couldn't download that photo for re-cropping.");
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.alt = '';
+      img.setAttribute('aria-hidden', 'true');
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error("That image couldn't be decoded."));
+        img.src = objectUrl;
+      });
+      return img;
+    } finally {
+      // Safe now: the bitmap is decoded, so revoking doesn't affect it.
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  /** Normalise a decoded image to a JPEG blob so load() can take over. */
+  async function imageToBlob(img) {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0);
+    return toBlob(canvas, 'image/jpeg', 0.95);
+  }
+
+  return {
+    load,
+    loadFromUrl,
+    commit,
+    rotate,
+    reset,
+    nudge,
+    teardown,
+    cleanupUploads,
+    get ready() {
+      return Boolean(cropper);
+    },
+  };
 }
 
 /** Validate + normalise the card form before we hit the API. */

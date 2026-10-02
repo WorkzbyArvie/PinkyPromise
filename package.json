@@ -9,7 +9,7 @@
     "dev:css": "tailwindcss -i ./src/input.css -o ./public/css/app.css --watch",
     "serve:css": "tailwindcss -i ./src/input.css -o ./public/css/app.css",
     "css:check": "node scripts/check-css.mjs",
-    "verify": "npm run css:check && npm test && npm run test:routing && npm run test:boot",
+    "verify": "npm run css:check && npm test && npm run test:php && npm run test:routing && npm run test:boot",
     "serve": "serve -l 4173 public",
     "migrate": "node scripts/migrate.mjs",
     "migrate:status": "node scripts/migrate.mjs --status",
@@ -19,6 +19,7 @@
     "db:set-anchor": "node scripts/set-anchor.mjs",
     "test": "node test.mjs && node test-sources.mjs",
     "test:api": "node scripts/test-api.mjs",
+    "test:php": "node scripts/test-php.mjs",
     "test:boot": "node scripts/test-boot.mjs",
     "test:routing": "node scripts/test-routing.mjs",
     "lint:php": "for /f %f in ('dir /b /s api\\*.php lib\\*.php') do @php -l %f"

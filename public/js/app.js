@@ -102,11 +102,16 @@ function appShell() {
     cells: [],
     weekdays: WEEKDAY_LABELS,
     dayCell: null,
+    calJumpOpen: false,
+    _jumpTimer: 0,
 
     /* decks */
     deckCategory: 'sorry',
     deckTabRefs: {},
     deckRow: null,
+    deckEdit: { open: false, id: null, category: 'sorry', title: '', content: '', errors: {} },
+    deckBusy: false,
+    deckError: null,
 
     /* jar */
     jarNote: null,
@@ -122,6 +127,8 @@ function appShell() {
     trackForm: { title: '', source_type: 'file', url: '', file: null },
     trackError: null,
     trackBusy: false,
+    trackUploadProgress: 0,
+    trackUploadedPath: null,
 
     /* admin */
     admin: { open: false, step: 'pick', editing: false, form: {}, errors: {}, preview: null },
@@ -313,6 +320,8 @@ function appShell() {
 
       const kind = this.trackForm.source_type;
       this.trackBusy = true;
+      this.trackUploadProgress = 0;
+      this.trackUploadedPath = null;
 
       try {
         if (this.demoMode) {
@@ -339,8 +348,17 @@ function appShell() {
           let sourceUrl = this.trackForm.url.trim();
 
           if (this.trackForm.file) {
-            const uploaded = await uploadApi.audio(this.trackForm.file);
+            // Uploaded audio goes DIRECTLY to Supabase via a signed URL.
+            // Vercel rejects function bodies over 4.5 MB before PHP runs, so a
+            // 5 MB mp3 cannot be streamed through /api/upload at all.
+            const uploaded = await uploadApi.sendDirect(this.trackForm.file, 'audio', {
+              onProgress: (f) => {
+                this.trackUploadProgress = Math.round(f * 100);
+              },
+            });
             sourceUrl = uploaded.url;
+            this.trackUploadedPath = uploaded.path;
+
             await tracksApi.create({
               title,
               source_type: 'file',
@@ -478,8 +496,54 @@ function appShell() {
       const d = new Date(this.calYear, this.calMonth + delta, 1);
       this.calYear = d.getFullYear();
       this.calMonth = d.getMonth();
+      this.calJumpOpen = false;
       if (this.demoMode) this._rebuildCalendar();
       else this._loadCalendarRange();
+    },
+
+    /* ---------------- month / year jump ---------------- */
+
+    get calYears() {
+      const now = new Date().getFullYear();
+      const span = [];
+      // Five years back, five forward: enough to reach any plausible
+      // anniversary without an unbounded list.
+      for (let y = now - 5; y <= now + 5; y += 1) span.push(y);
+      if (!span.includes(this.calYear)) span.push(this.calYear);
+      return span.sort((a, b) => a - b);
+    },
+
+    get calMonths() {
+      return [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December',
+      ];
+    },
+
+    jumpToToday() {
+      const now = new Date();
+      this.calYear = now.getFullYear();
+      this.calMonth = now.getMonth();
+      this.calJumpOpen = false;
+      if (this.demoMode) this._rebuildCalendar();
+      else this._loadCalendarRange();
+    },
+
+    jumpTo(month, year) {
+      this.calYear = year;
+      this.calMonth = month;
+      this.calJumpOpen = false;
+      if (this.demoMode) this._rebuildCalendar();
+      else this._loadCalendarRange();
+    },
+
+    /** Jumping must not thrash the API if a user clicks through the picker. */
+    queueJump() {
+      clearTimeout(this._jumpTimer);
+      this._jumpTimer = setTimeout(() => {
+        if (this.demoMode) this._rebuildCalendar();
+        else this._loadCalendarRange();
+      }, 120);
     },
 
     openDay(cell) {
@@ -503,6 +567,121 @@ function appShell() {
     pageDeck(dir) { pageBy(this.$refs.deckRow, dir); },
     onDeckKey(e) { onRowKeydown(e, this.$refs.deckRow); },
 
+    /* -------------------- deck card CRUD -------------------- */
+
+    newDeckCard() {
+      this.deckError = null;
+      this.deckEdit = {
+        open: true,
+        id: null,
+        category: this.deckCategory,
+        title: '',
+        content: '',
+        errors: {},
+      };
+      document.body.style.overflow = 'hidden';
+    },
+
+    editDeckCard(card) {
+      this.deckError = null;
+      this.deckEdit = {
+        open: true,
+        id: card.id,
+        category: card.category,
+        title: card.title,
+        content: card.content,
+        errors: {},
+      };
+      document.body.style.overflow = 'hidden';
+    },
+
+    closeDeckEdit() {
+      this.deckEdit = { open: false, id: null, category: 'sorry', title: '', content: '', errors: {} };
+      this.deckError = null;
+      document.body.style.overflow = '';
+    },
+
+    async saveDeckCard() {
+      const title = (this.deckEdit.title ?? '').trim();
+      const content = (this.deckEdit.content ?? '').trim();
+
+      const errors = {};
+      if (!title) errors.title = 'Give the card a title.';
+      else if (title.length > 255) errors.title = 'Title must be 255 characters or fewer.';
+      if (!content) errors.content = 'Write what this card says.';
+      else if (content.length > 20000) errors.content = 'That card is too long.';
+
+      if (Object.keys(errors).length) {
+        this.deckEdit.errors = errors;
+        return;
+      }
+
+      this.deckBusy = true;
+      this.deckError = null;
+
+      try {
+        if (this.demoMode) {
+          if (this.deckEdit.id) {
+            this.decks[this.deckCategory] = (this.decks[this.deckCategory] ?? []).map((c) =>
+              c.id === this.deckEdit.id ? { ...c, title, content } : c,
+            );
+          } else {
+            this.decks[this.deckCategory] = [
+              {
+                id: `demo-${Date.now()}`,
+                category: this.deckEdit.category,
+                title,
+                content,
+                created_at: new Date().toISOString(),
+              },
+              ...(this.decks[this.deckCategory] ?? []),
+            ];
+          }
+        } else if (this.deckEdit.id) {
+          await decksApi.update({ id: this.deckEdit.id, title, content });
+          for (const key of Object.keys(this.decks)) {
+            this.decks[key] = (this.decks[key] ?? []).map((c) =>
+              c.id === this.deckEdit.id ? { ...c, title, content } : c,
+            );
+          }
+        } else {
+          const created = await decksApi.create({
+            category: this.deckEdit.category,
+            title,
+            content,
+          });
+          this.decks[this.deckEdit.category] = [
+            created,
+            ...(this.decks[this.deckEdit.category] ?? []),
+          ];
+        }
+        this.closeDeckEdit();
+      } catch (err) {
+        this.deckError = err.message || "Couldn't save that card.";
+      } finally {
+        this.deckBusy = false;
+      }
+    },
+
+    async removeDeckCard(card) {
+      const ok = window.confirm(`Delete "${card.title}"? This can't be undone.`);
+      if (!ok) return;
+      try {
+        if (this.demoMode) {
+          this.decks[card.category] = (this.decks[card.category] ?? []).filter(
+            (c) => c.id !== card.id,
+          );
+        } else {
+          await decksApi.remove(card.id);
+          for (const key of Object.keys(this.decks)) {
+            this.decks[key] = (this.decks[key] ?? []).filter((c) => c.id !== card.id);
+          }
+        }
+      } catch (err) {
+        window.alert(err.message || "Couldn't delete that card.");
+      }
+    },
+
     /* ============================ jar ============================= */
 
     get jarTotal() { return this._jar?.count ?? 0; },
@@ -524,11 +703,20 @@ function appShell() {
 
     openAdmin(card = null, editing = false) {
       this.adminError = null;
+      this._cropper?.teardown();
+      this._cropper = null;
+
+      // When EDITING, land on the details step. Forcing a re-pick made it
+      // impossible to fix a typo in the letter without hunting for the photo
+      // again, and impossible to re-crop without starting over.
       this.admin = {
         open: true,
-        step: 'pick',
+        step: editing ? 'details' : 'pick',
         editing,
         preview: card?.photo_url ?? null,
+        // Carried over so saving details-only does not null them out.
+        photo_url: card?.photo_url ?? '',
+        photo_original_url: card?.photo_original_url ?? '',
         errors: {},
         form: {
           title: card?.title ?? '',
@@ -540,10 +728,37 @@ function appShell() {
       document.body.style.overflow = 'hidden';
     },
 
+    /** Re-open the cropper for a card that already exists. */
+    async recropCard() {
+      const card = this._existingCard;
+      if (!card) return;
+
+      const source = card.photo_original_url || card.photo_url;
+      this.adminError = null;
+
+      try {
+        if (!this._cropper) {
+          this._cropper = createCropper({ onUpdate: () => {} });
+        }
+        // Load the ORIGINAL so a re-crop is not compounding a previous crop.
+        // This needs the CORS headers Supabase Storage sends, otherwise the
+        // canvas is tainted and toBlob() throws a SecurityError.
+        await this._cropper.loadFromUrl(source, this.$refs.cropImage);
+        this.admin.step = 'crop';
+      } catch (err) {
+        this.adminError = err.message || "Couldn't load that photo for re-cropping.";
+      }
+    },
+
+    
+
     closeAdmin() {
       this._cropper?.teardown();
       this._cropper = null;
-      this.admin = { open: false, step: 'pick', editing: false, form: {}, errors: {}, preview: null };
+      this.admin = {
+        open: false, step: 'pick', editing: false, form: {},
+        errors: {}, preview: null, photo_url: '', photo_original_url: '',
+      };
       this._existingCard = null;
       this.adminError = null;
       document.body.style.overflow = '';
@@ -628,9 +843,22 @@ function appShell() {
             : [local, ...this.photos];
           this._rebuildCalendar();
         } else if (this.admin.editing) {
-          await cardsApi.update({ id: this._existingCard.id, ...this.admin.form });
+          // Only send the image fields if a re-crop actually happened, so a
+          // details-only edit cannot blank them.
+          const patch = {
+            id: this._existingCard.id,
+            title: this.admin.form.title,
+            letter_text: this.admin.form.letter_text,
+            memory_date: this.admin.form.memory_date || null,
+          };
+          if (this.admin.form.photo_url && this.admin.form.photo_url !== this._existingCard.photo_url) {
+            patch.photo_url = this.admin.form.photo_url;
+            patch.photo_original_url = this.admin.form.photo_original_url || null;
+          }
+
+          await cardsApi.update(patch);
           this.photos = this.photos.map((p) =>
-            p.id === this._existingCard.id ? { ...p, ...this.admin.form } : p,
+            p.id === this._existingCard.id ? { ...p, ...patch } : p,
           );
           await this._loadCalendarRange();
         } else {
@@ -678,6 +906,15 @@ function appShell() {
     fmtDate(iso) {
       const d = parseYmd(iso);
       return d ? `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}` : '';
+    },
+
+    /** Human-readable file size for the upload pickers. */
+    fmtBytes(bytes) {
+      const n = Number(bytes);
+      if (!Number.isFinite(n) || n <= 0) return 'mp3, m4a, ogg or wav';
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+      return `${(n / 1024 / 1024).toFixed(1)} MB`;
     },
 
     longDate(iso) {

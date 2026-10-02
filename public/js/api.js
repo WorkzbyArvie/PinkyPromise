@@ -153,5 +153,86 @@ export const uploadApi = {
     return api.send(`/api/upload?${q}`, file);
   },
   audio: (file) => api.send(`/api/upload?kind=audio`, file),
+
+  /**
+   * Upload media directly to Supabase, bypassing Vercel.
+   *
+   * Vercel rejects function request bodies over 4.5 MB *before PHP runs*, so a
+   * 5 MB mp3 can never go through /api/upload — the rejection happens at the
+   * platform level, not ours, and raising our own limit changes nothing. We ask
+   * the server for a short-lived signed URL and PUT the bytes straight to
+   * Supabase instead.
+   *
+   * @param {File} file
+   * @param {string} [kind]
+   * @param {AbortSignal} [signal]
+   * @param {(fraction:number)=>void} [onProgress] 0..1
+   */
+  sendDirect: async (file, kind = 'audio', { signal, onProgress } = {}) => {
+    const signed = await api.post(
+      `/api/upload-signed?kind=${encodeURIComponent(kind)}`,
+      {
+        filename: file.name ?? 'upload',
+        mime: file.type || 'application/octet-stream',
+        bytes: file.size,
+      },
+      { signal },
+    );
+
+    const target = `${signed.upload_url}?token=${encodeURIComponent(signed.token)}`;
+
+    // The server's canonical type, NOT file.type. Browsers report aliases
+    // (audio/x-m4a, audio/mp3) that the bucket's allowlist does not list, and
+    // Supabase rejects the PUT if the content_type is not on that list.
+    const contentType = signed.content_type || file.type || 'application/octet-stream';
+
+    // XHR rather than fetch: fetch still cannot report UPLOAD progress, and the
+    // progress bar is what separates "hanging" from "working" on a 6 MB file
+    // over a phone connection.
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', target);
+      xhr.setRequestHeader('Content-Type', contentType);
+      xhr.setRequestHeader('x-upsert', 'false');
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) onProgress?.(e.loaded / e.total);
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(1);
+          resolve();
+        } else {
+          // Supabase reports the real reason in the body — surface it instead
+          // of a bare status code, otherwise a rejected content-type looks like
+          // an arbitrary network failure.
+          let detail = '';
+          try {
+            detail = JSON.parse(xhr.responseText).message ?? '';
+          } catch {
+            /* non-JSON error body; the status alone is all we have */
+          }
+          if (xhr.status === 413) {
+            reject(new Error('That file is larger than the storage limit (50 MB).'));
+          } else if (/mime|content.?type/i.test(detail)) {
+            reject(new Error("That file's format isn't accepted. Try MP3, M4A, OGG or WAV."));
+          } else {
+            reject(new Error(detail || `Upload failed (HTTP ${xhr.status}).`));
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => reject(new Error("Couldn't reach the storage service.")));
+      xhr.addEventListener('abort', () => reject(new Error('Upload cancelled.')));
+
+      if (signal) signal.addEventListener('abort', () => xhr.abort());
+
+      xhr.send(file);
+    });
+
+    return { url: signed.url, path: signed.path };
+  },
+
   remove: (path) => api.del('/api/upload', { path }),
 };

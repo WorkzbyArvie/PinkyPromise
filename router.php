@@ -48,6 +48,27 @@ if (str_starts_with($path, '/api/')) {
         return true;
     }
 
+    // Reject NESTED paths explicitly.
+    //
+    // basename('/api/upload/signed') collapses to 'signed', so a nested URL
+    // silently resolves against api/signed.php instead of failing on its shape.
+    // That hides the real mistake: Vercel maps api/upload-signed.php to
+    // /api/upload-signed, never /api/upload/signed, so a nested URL 404s in
+    // production no matter what exists locally. Every endpoint is flat; this
+    // makes a nested request say so instead of looking like a missing file.
+    if (!preg_match('#^/api/[a-z0-9-]+$#', $path)) {
+        http_response_code(404);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'ok' => false,
+            'error' => [
+                'code' => 'not_found',
+                'message' => 'Unknown endpoint. API routes are flat, e.g. /api/upload-signed.',
+            ],
+        ]);
+        return true;
+    }
+
     $file = $root . '/api/' . $name . '.php';
     if (is_file($file)) {
         // The endpoint sets its own headers and calls exit.
