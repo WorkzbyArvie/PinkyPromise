@@ -63,6 +63,23 @@ const idleBars = 7;
 export function createPlayer({ onState } = {}) {
   /* ---------------- file transport ---------------- */
   const audio = new Audio();
+
+  /*
+   * MUST be set before any src is assigned.
+   *
+   * The visualiser routes this element through Web Audio via
+   * createMediaElementSource(), and Web Audio refuses to read a cross-origin
+   * media element that was not fetched in CORS mode — it "outputs zeroes" and
+   * playback stalls. Supabase Storage does send Access-Control-Allow-Origin: *
+   * on public objects, so the only thing missing was this opt-in: without it the
+   * browser fetches the audio untainted, the analyser reads silence, and the
+   * console fills with
+   *   "MediaElementAudioSource outputs zeroes due to CORS access restrictions"
+   *
+   * Setting it after the first load is too late — the element is already
+   * tainted and needs a reload — so it goes here, at construction.
+   */
+  audio.crossOrigin = 'anonymous';
   audio.preload = 'metadata';
 
   let ctx = null;
@@ -77,6 +94,9 @@ export function createPlayer({ onState } = {}) {
   let ytMount = null; // the stable container that lives in the DOM
   let ytPopoverOpen = false;
   let ytProgress = 0;
+// Raw seconds for the timestamp readout; ytProgress alone is only a ratio.
+let ytElapsed = 0;
+let ytDuration = 0;
 
   /* ---------------- shared ---------------- */
   let tracks = [];
@@ -114,6 +134,10 @@ let listError = null;
     visualizer: tracks.length ? supportsVisualizer(sourceType()) : false,
     popoverOpen: ytPopoverOpen,
     progress: progressNow(),
+    // Raw seconds for the "1:04 / 3:27" readout. duration is 0 until metadata
+    // arrives, which the formatter renders as 0:00 rather than NaN:NaN.
+    elapsed: timesNow().elapsed,
+    duration: timesNow().duration,
   });
 
   function playingNow() {
@@ -128,6 +152,51 @@ let listError = null;
       return audio.currentTime / audio.duration;
     }
     return 0;
+  }
+
+  /*
+   * Elapsed and total seconds, for a "1:04 / 3:27" readout.
+   *
+   * duration is NaN until metadata arrives, and Infinity for a stream, so both
+   * collapse to 0 rather than rendering "NaN:NaN". Spotify shows "--:--" in that
+   * window; a zero total with the elapsed count is honest and simpler.
+   */
+  function timesNow() {
+    if (sourceType() === 'youtube') {
+      return { elapsed: ytElapsed || 0, duration: ytDuration || 0 };
+    }
+    if (sourceType() === 'file') {
+      const d = audio.duration;
+      return {
+        elapsed: audio.currentTime || 0,
+        duration: Number.isFinite(d) && d > 0 ? d : 0,
+      };
+    }
+    return { elapsed: 0, duration: 0 };
+  }
+
+  /**
+   * Seek to a fraction of the track (0..1).
+   *
+   * Spotify's bar is a control, not a readout, so this is what makes the
+   * progress bar scrubbable. Guarded because a seek with no loaded duration
+   * would set currentTime to NaN and wedge the element.
+   */
+  function seekTo(fraction) {
+    const f = Number(fraction);
+    if (!Number.isFinite(f)) return;
+
+    if (sourceType() === 'youtube') {
+      const d = ytDuration || 0;
+      if (d > 0) ytPlayer?.seekTo?.(Math.max(0, Math.min(1, f)) * d, true);
+      return;
+    }
+
+    if (sourceType() !== 'file') return;
+    const d = audio.duration;
+    if (!Number.isFinite(d) || d <= 0) return;
+    audio.currentTime = Math.max(0, Math.min(1, f)) * d;
+    emit();
   }
 
   function emit() {
@@ -228,6 +297,10 @@ let listError = null;
         const dur = ytPlayer.getDuration() || 0;
         const cur = ytPlayer.getCurrentTime() || 0;
         ytProgress = dur ? Math.min(1, cur / dur) : 0;
+        // Kept as state, not just a ratio, so the "1:04 / 3:27" readout has
+        // real numbers to format. The IFrame API exposes both.
+        ytElapsed = cur;
+        ytDuration = dur;
       }
       emit();
     }, 500);
@@ -279,6 +352,8 @@ let listError = null;
     }
     ytPlayer = null;
     ytProgress = 0;
+    ytElapsed = 0;
+    ytDuration = 0;
     ytSlot?.remove();
     ytSlot = null;
   }
@@ -334,6 +409,11 @@ let listError = null;
           },
         },
       });
+      // Fresh video, fresh clock — otherwise the previous track's position
+      // shows until the first poll lands.
+      ytProgress = 0;
+      ytElapsed = 0;
+      ytDuration = 0;
     } catch (err) {
       lastError = err.message || "Couldn't load YouTube.";
       emit();
@@ -690,6 +770,7 @@ function setTracks(list) {
     prev,
     select,
     setVolume,
+    seekTo,
     toggleMute,
     openInSpotify,
     openPopover,

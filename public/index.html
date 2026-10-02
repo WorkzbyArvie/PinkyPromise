@@ -7,6 +7,11 @@
 <meta name="description" content="Memory photocards, anniversaries, and notes kept just for us.">
 <meta name="theme-color" content="#FDF2F8">
 
+<!-- Inline SVG favicon. Without an explicit icon the browser requests
+     /favicon.ico on every page load, which 404s and shows up as a red console
+     error that looks like a real fault. A data URI needs no extra request. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext y='19' font-size='20'%3E%F0%9F%92%97%3C/text%3E%3C/svg%3E">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
@@ -93,13 +98,20 @@
      ================================================================== -->
 <div x-show="authed" x-cloak class="min-h-dvh">
 
-  <!-- ---- Header: countdown ---- -->
-  <header x-ref="appHeader" class="sticky top-0 z-30 px-4 pt-4">
+  <!-- ---- Header: countdown ----
+       The header paints its own base colour, not just the panel inside it.
+       `pt-4` leaves a transparent band above the rounded panel, and because the
+       header is sticky, scrolled content slid through that band and appeared
+       cut off behind it. -->
+  <header x-ref="appHeader" class="sticky top-0 z-30 bg-blush px-4 pt-4">
     <div class="glass-sticky mx-auto max-w-6xl rounded-card px-5 py-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <h1 class="truncate text-heading leading-tight" x-text="settings.site_title || 'Our Little World'"></h1>
-          <p class="text-label text-ink-muted" x-text="settings.partner_names || 'You & Me'"></p>
+        <!-- basis-64 claims space for the title first; without it the flex
+             parent squeezed this child to min-w-0 and `truncate` clipped the
+             name mid-glyph instead of wrapping it. -->
+        <div class="min-w-0 basis-64 flex-1">
+          <h1 class="break-words text-heading leading-tight" x-text="settings.site_title || 'Our Little World'"></h1>
+          <p class="break-words text-label text-ink-muted" x-text="settings.partner_names || 'You & Me'"></p>
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <button type="button" @click="openSettings()"
@@ -151,7 +163,7 @@
        Sticks directly below the header. The header's height changes with the
        countdown (shown vs "no anchor date yet") and wraps on narrow screens, so
        this offset is measured from the live element rather than hardcoded. -->
-  <nav x-ref="tabNav" class="sticky top-[var(--header-h,0px)] z-20 mt-4 px-4" aria-label="Sections">
+  <nav x-ref="tabNav" class="sticky top-[var(--header-h,0px)] z-20 mt-4 bg-blush px-4" aria-label="Sections">
     <div x-ref="tabStrip" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto rounded-card glass-sticky p-1.5">
       <template x-for="t in tabs" :key="t.id">
         <button type="button" @click="setTab(t.id)" :ref="(el) => { if (el) tabRefs[t.id] = el }"
@@ -1222,6 +1234,24 @@
               <option :value="i" :selected="i === music.index" x-text="t.title"></option>
             </template>
           </select>
+        </div>
+
+        <!-- Scrubber + timestamp, Spotify style.
+             A native <input type=range> is used rather than a custom div so
+             dragging, arrow keys, Home/End and screen-reader support all come
+             for free; a div would have to reimplement each of them. -->
+        <div x-show="music.playable" class="flex shrink-0 items-center gap-2">
+          <span class="w-9 text-right text-[11px] tabular-nums text-ink-muted"
+                x-text="fmtTime(music.elapsed)"></span>
+          <input type="range" min="0" max="1" step="0.001"
+                 :value="music.duration > 0 ? music.progress : 0"
+                 :disabled="music.duration <= 0"
+                 @input="seekMusic($event.target.value)"
+                 :aria-label="`Seek in ${music.track?.title || 'track'}`"
+                 :aria-valuetext="`${fmtTime(music.elapsed)} of ${fmtTime(music.duration)}`"
+                 class="h-1 w-20 cursor-pointer accent-rose-deep disabled:cursor-not-allowed disabled:opacity-40 sm:w-28">
+          <span class="w-9 text-[11px] tabular-nums text-ink-muted"
+                x-text="fmtTime(music.duration)"></span>
         </div>
 
         <div x-show="music.playable" class="hidden shrink-0 items-center gap-1 sm:flex">

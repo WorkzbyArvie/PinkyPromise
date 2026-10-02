@@ -242,5 +242,37 @@ await t('the vendored Alpine build does not auto-start on import', () => {
   );
 });
 
+await t('fmtTime renders a Spotify-style timestamp', () => {
+  const { fmtTime } = captured().appShell();
+  assert.equal(fmtTime(0), '0:00', 'zero');
+  assert.equal(fmtTime(5), '0:05', 'seconds are zero-padded');
+  assert.equal(fmtTime(64), '1:04', 'minutes and seconds');
+  assert.equal(fmtTime(600), '10:00', 'exact minutes');
+  assert.equal(fmtTime(3599), '59:59', 'just under an hour');
+  assert.equal(fmtTime(3600), '1:00:00', 'hours appear past 60 minutes');
+  assert.equal(fmtTime(3661), '1:01:01', 'hours with padded minutes and seconds');
+  assert.equal(fmtTime(45296), '12:34:56', 'a full track length');
+});
+
+await t('fmtTime never renders NaN or Infinity', () => {
+  // audio.duration is NaN until metadata loads and Infinity for a stream. A
+  // transport reading "NaN:NaN" looks broken when it is merely still waiting.
+  const { fmtTime } = captured().appShell();
+  for (const bad of [NaN, Infinity, -Infinity, -1, null, undefined, 'abc', {}]) {
+    const out = fmtTime(bad);
+    assert.equal(out, '0:00', `${JSON.stringify(bad)} formatted as "${out}"`);
+    assert.ok(!/NaN|Infinity/.test(out), `${JSON.stringify(bad)} leaked "${out}"`);
+  }
+});
+
+await t('fmtBytes reports a real size, not the placeholder, when given one', () => {
+  const { fmtBytes } = captured().appShell();
+  assert.equal(fmtBytes(5616881), '5.4 MB', 'a 5.6 MB upload');
+  assert.equal(fmtBytes(512 * 1024), '512 KB');
+  assert.equal(fmtBytes(900), '900 B');
+  // No file chosen yet: the hint text, not a bogus size.
+  assert.match(fmtBytes(undefined), /mp3/i, 'should fall back to a format hint');
+});
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

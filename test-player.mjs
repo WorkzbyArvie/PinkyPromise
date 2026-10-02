@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 
 class FakeAudio {
   constructor() {
-    this.src = '';
+    this._src = '';
     this.paused = true;
     this.volume = 1;
     this.muted = false;
@@ -32,6 +32,17 @@ class FakeAudio {
     this.loop = false;
     this.crossOrigin = null;
     this.preload = 'none';
+    // Records the crossOrigin value at the moment src was first assigned, so a
+    // test can prove the opt-in happened BEFORE the first load. Setting it
+    // afterwards is too late: the element is already tainted and only a reload
+    // would help.
+    this.srcAtCrossOriginSet = undefined;
+    globalThis.__lastAudio = this;
+  }
+  get src() { return this._src; }
+  set src(v) {
+    if (!this._src) this.srcAtCrossOriginSet = this.crossOrigin;
+    this._src = v;
   }
   play() { this.paused = false; return Promise.resolve(); }
   pause() { this.paused = true; }
@@ -268,6 +279,147 @@ await t('a bundled manifest still merges in alongside API tracks', async () => {
     p.destroy();
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+console.log('\ntransport: cross-origin, timestamps, seeking\n');
+
+await t('the audio element opts into CORS before any src is set', async () => {
+  // The visualiser routes playback through Web Audio, and createMediaElementSource
+  // reads silence from a cross-origin element that was not fetched in CORS mode.
+  // Supabase sends Access-Control-Allow-Origin: *; without this opt-in the
+  // analyser outputs zeroes and the console fills with a CORS warning.
+  const restore = stub(() => json({ ok: true, data: [track('1', 'Cors')] }));
+  try {
+    const p = createPlayer({ onState: noop });
+    await p.init();
+    const a = globalThis.__lastAudio;
+    assert.ok(a, 'the player did not construct an Audio element');
+    assert.equal(
+      a.crossOrigin,
+      'anonymous',
+      'crossOrigin must be "anonymous" or Web Audio cannot read the track',
+    );
+    // Ordering is the whole point: crossOrigin must already be 'anonymous' at
+    // the moment the first src is assigned. Patching it in afterwards leaves
+    // the element tainted and needs a reload to fix.
+    assert.equal(
+      a.srcAtCrossOriginSet,
+      'anonymous',
+      'crossOrigin was not set before the first src assignment — the element ' +
+        'loads tainted and the analyser will read silence',
+    );
+    p.destroy();
+  } finally {
+    restore();
+  }
+});
+
+await t('state exposes elapsed and duration in seconds', async () => {
+  const restore = stub(() => json({ ok: true, data: [track('1', 'Timed')] }));
+  try {
+    const p = createPlayer({ onState: noop });
+    const s = await p.init();
+    assert.equal(typeof s.elapsed, 'number', 'elapsed must be a number');
+    assert.equal(typeof s.duration, 'number', 'duration must be a number');
+    assert.ok(Number.isFinite(s.elapsed), 'elapsed must be finite');
+    assert.ok(Number.isFinite(s.duration), 'duration must be finite');
+    p.destroy();
+  } finally {
+    restore();
+  }
+});
+
+await t('an unknown duration is 0, never NaN or Infinity', async () => {
+  // audio.duration is NaN before metadata loads and Infinity for a stream. A
+  // player showing "NaN:NaN" looks broken even though it is only waiting.
+  const restore = stub(() => json({ ok: true, data: [track('1', 'Unknown')] }));
+  try {
+    const p = createPlayer({ onState: noop });
+    const s = await p.init();
+    assert.equal(s.duration, 0, `expected 0 for an unknown duration, got ${s.duration}`);
+    assert.equal(s.elapsed, 0);
+    p.destroy();
+  } finally {
+    restore();
+  }
+});
+
+await t('progress stays within 0..1 when a duration is known', async () => {
+  const restore = stub(() => json({ ok: true, data: [track('1', 'Timed')] }));
+  try {
+    const p = createPlayer({ onState: noop });
+    await p.init();
+    const a = globalThis.__lastAudio;
+    a.duration = 200;
+    a.currentTime = 50;
+    const s = p.emit() ?? p.state?.() ?? null;
+    // seekTo is the public probe; it must not throw on a valid fraction.
+    p.seekTo(0.25);
+    assert.ok(a.currentTime >= 0 && a.currentTime <= a.duration, 'seek kept the playhead in range');
+    void s;
+    p.destroy();
+  } finally {
+    restore();
+  }
+});
+
+await t('seekTo is a no-op when no duration is known', async () => {
+  const restore = stub(() => json({ ok: true, data: [track('1', 'NoMeta')] }));
+  try {
+    const p = createPlayer({ onState: noop });
+    await p.init();
+    const a = globalThis.__lastAudio;
+    a.duration = NaN;
+    a.currentTime = 0;
+    // Must not write NaN into currentTime, which would wedge the element.
+    p.seekTo(0.5);
+    assert.ok(Number.isFinite(a.currentTime), `currentTime became ${a.currentTime}`);
+    p.destroy();
+  } finally {
+    restore();
+  }
+});
+
+await t('seekTo clamps out-of-range fractions', async () => {
+  const restore = stub(() => json({ ok: true, data: [track('1', 'Clamp')] }));
+  try {
+    const p = createPlayer({ onState: noop });
+    await p.init();
+    const a = globalThis.__lastAudio;
+    a.duration = 100;
+
+    p.seekTo(5);
+    assert.ok(Math.abs(a.currentTime - 100) < 0.001, `expected the end, got ${a.currentTime}`);
+
+    p.seekTo(-3);
+    assert.ok(Math.abs(a.currentTime) < 0.001, `expected the start, got ${a.currentTime}`);
+
+    p.seekTo('nonsense');
+    assert.ok(Number.isFinite(a.currentTime), 'a non-numeric fraction must be ignored');
+
+    p.destroy();
+  } finally {
+    restore();
+  }
+});
+
+await t('seekTo on a Spotify hand-off track does not touch the element', async () => {
+  const restore = stub(() => json({
+    ok: true,
+    data: [{ id: '1', title: 'Spot', source_type: 'spotify', source: 'track/abcdefghijklmnopqrstuv' }],
+  }));
+  try {
+    const p = createPlayer({ onState: noop });
+    await p.init();
+    const a = globalThis.__lastAudio;
+    a.duration = 100;
+    a.currentTime = 0;
+    p.seekTo(0.5);
+    assert.equal(a.currentTime, 0, 'a link-out track must not be seeked locally');
+    p.destroy();
+  } finally {
+    restore();
   }
 });
 

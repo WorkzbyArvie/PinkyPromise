@@ -137,6 +137,7 @@ function appShell() {
       ready: false, playing: false, track: null, index: 0, volume: 1, muted: false,
       tracks: [], sourceType: null, playable: false, visualizer: false,
       popoverOpen: false, progress: 0, error: null, listError: null,
+      elapsed: 0, duration: 0,
     },
     trackSources: TRACK_SOURCES,
     trackForm: { title: '', source_type: 'file', url: '', file: null },
@@ -1232,6 +1233,28 @@ function appShell() {
       if (n < 1024) return `${n} B`;
       if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
       return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    },
+
+    /**
+     * Seconds -> "m:ss", or "h:mm:ss" past an hour.
+     *
+     * NaN and Infinity both become 0:00. `audio.duration` is NaN until metadata
+     * loads and Infinity for a stream, and a player that briefly shows
+     * "NaN:NaN" looks broken even though it is only waiting for the header.
+     */
+    fmtTime(seconds) {
+      const total = Math.floor(Number(seconds));
+      if (!Number.isFinite(total) || total < 0) return '0:00';
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      const pad = (n) => String(n).padStart(2, '0');
+      return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+    },
+
+    /** Scrub the transport. Fraction 0..1, matching music.progress. */
+    seekMusic(fraction) {
+      this._player?.seekTo(fraction);
     },
 
     longDate(iso) {
