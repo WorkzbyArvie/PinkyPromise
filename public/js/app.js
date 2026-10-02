@@ -1261,6 +1261,10 @@ function appShell() {
           }
 
           await cardsApi.update(patch);
+          // A re-crop on the edit path uploaded fresh objects. The row now
+          // references them, so they are no longer orphans — otherwise a later
+          // failure would delete images this card depends on.
+          this._cropper?.releaseUploads();
           this.photos = this.photos.map((p) =>
             p.id === this._existingCard.id ? { ...p, ...patch } : p,
           );

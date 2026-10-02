@@ -103,7 +103,7 @@
        `pt-4` leaves a transparent band above the rounded panel, and because the
        header is sticky, scrolled content slid through that band and appeared
        cut off behind it. -->
-  <header x-ref="appHeader" class="sticky top-0 z-30 bg-blush px-4 pt-4">
+  <header x-ref="appHeader" class="page-bg sticky top-0 z-30 px-4 pt-4">
     <div class="glass-sticky mx-auto max-w-6xl rounded-card px-5 py-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <!-- basis-64 claims space for the title first; without it the flex
@@ -163,7 +163,7 @@
        Sticks directly below the header. The header's height changes with the
        countdown (shown vs "no anchor date yet") and wraps on narrow screens, so
        this offset is measured from the live element rather than hardcoded. -->
-  <nav x-ref="tabNav" class="sticky top-[var(--header-h,0px)] z-20 mt-4 bg-blush px-4" aria-label="Sections">
+  <nav x-ref="tabNav" class="page-bg sticky top-[var(--header-h,0px)] z-20 mt-4 px-4" aria-label="Sections">
     <div x-ref="tabStrip" class="mx-auto flex max-w-6xl gap-1 overflow-x-auto rounded-card glass-sticky p-1.5">
       <template x-for="t in tabs" :key="t.id">
         <button type="button" @click="setTab(t.id)" :ref="(el) => { if (el) tabRefs[t.id] = el }"

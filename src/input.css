@@ -183,6 +183,21 @@
   border-color: rgb(255 255 255 / 0.45);
 }
 
+/*
+ * Page background for STICKY chrome — masks what scrolls underneath without
+ * introducing a seam.
+ *
+ * Must stay byte-identical to the body gradient. Because attachment is fixed,
+ * the gradient is laid out against the viewport, so a sticky bar painted with
+ * the same gradient lines up exactly with the body at any scroll offset and
+ * reads as one continuous surface.
+ */
+@utility page-bg {
+  background-image: var(--page-gradient);
+  background-attachment: fixed;
+  background-color: var(--color-blush);
+}
+
 /* Soft rose glow — reserved for focus, active bar, and the jar. */
 @utility glow {
   box-shadow: var(--shadow-glow);
@@ -336,20 +351,41 @@
     scroll-padding-top: 88px;
   }
 
+  /*
+ * THE page background, in one place.
+ *
+ * The sticky header and tab strip have to hide the content that scrolls
+ * underneath them, but a flat fill there was worse than the problem it solved:
+ * the body is a multi-stop gradient, so a solid rectangle in a different shade
+ * slid visibly past as you scrolled — hard-edged moving bands, which looks
+ * broken rather than intentional.
+ *
+ * `background-attachment: fixed` is the whole trick. It positions the gradient
+ * against the VIEWPORT rather than the element, so painting the identical
+ * gradient on a sticky bar registers perfectly with the body's at every scroll
+ * position. The bar masks the content behind it and the gradient simply
+ * continues through, with no seam to see.
+ *
+ * A variable so body and the sticky chrome cannot drift apart — they must be
+ * the same gradient or the seam comes straight back.
+ */
+@theme {
+  --page-gradient:
+    radial-gradient(120% 80% at 12% 8%, var(--color-cream) 0%, transparent 55%),
+    radial-gradient(100% 70% at 88% 12%, var(--color-lavender-100) 0%, transparent 50%),
+    radial-gradient(90% 90% at 50% 100%, var(--color-blush-soft) 0%, transparent 60%),
+    var(--color-blush);
+}
+
+/* Multi-stop gradient so glass always has colour to refract.
+   Never a flat fill, never pure white. */
   body {
     font-family: var(--font-body);
     font-size: var(--text-body);
     line-height: 1.6;
     color: var(--color-ink);
     min-height: 100dvh;
-
-    /* Multi-stop gradient so glass always has colour to refract.
-       Never a flat fill, never pure white. */
-    background:
-      radial-gradient(120% 80% at 12% 8%, var(--color-cream) 0%, transparent 55%),
-      radial-gradient(100% 70% at 88% 12%, var(--color-lavender-100) 0%, transparent 50%),
-      radial-gradient(90% 90% at 50% 100%, var(--color-blush-soft) 0%, transparent 60%),
-      var(--color-blush);
+    background-image: var(--page-gradient);
     background-attachment: fixed;
   }
 

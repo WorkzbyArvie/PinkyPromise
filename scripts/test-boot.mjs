@@ -383,6 +383,127 @@ await t('a failing list is reported alongside a successful save', async () => {
   await assert.rejects(() => c._reloadTracksOrThrow(), /500/);
 });
 
+await t('the cropper reads the upload response key that actually exists', () => {
+  // Regression: /api/upload returns { url, path, bytes, mime }, but commit()
+  // read `cardUpload.photo_url`. That is undefined, so photo_url never reached
+  // the insert, JSON.stringify dropped the key, and the server answered
+  // "This field is required." — which reads as "the optional date is the
+  // problem". Two images were left orphaned in storage every time.
+  const src = readFileSync(new URL('../public/js/admin.js', import.meta.url), 'utf8');
+
+  // Strip comments first: the fix's own comment names the old buggy access, and
+  // a naive grep for it matches the explanation rather than the code.
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  assert.ok(
+    !/cardUpload\.photo_url|originalUpload\.photo_url/.test(code),
+    'the upload response is still read as .photo_url, but /api/upload returns .url',
+  );
+
+  assert.match(
+    code,
+    /const cardUrl = cardUpload\?\.url;/,
+    'commit() must read cardUpload.url — that is the key /api/upload returns',
+  );
+
+  assert.match(
+    code,
+    /photo_url: cardUrl/,
+    'commit() must return the card image under photo_url',
+  );
+});
+
+await t('a missing upload URL fails loudly instead of becoming undefined', () => {
+  const src = readFileSync(new URL('../public/js/admin.js', import.meta.url), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  // The whole reason this hid for so long: an undefined URL produced a broken
+  // <img> and a generic validation error three screens later.
+  assert.match(
+    code,
+    /if \(typeof cardUrl !== 'string'/,
+    'commit() must validate the returned URL rather than passing undefined on',
+  );
+  assert.match(
+    code,
+    /photo uploaded but the server did not return a link/,
+    'the thrown error must say the upload itself went wrong, not that a field is missing',
+  );
+});
+
+await t('uploads are released only once the card row exists', () => {
+  const src = readFileSync(new URL('../public/js/admin.js', import.meta.url), 'utf8');
+
+  // commit() used to clear the tracked paths on the way out, assuming the card
+  // already owned them. It does not until the insert lands, so every failed
+  // save stranded two images in storage.
+  const commitStart = src.indexOf('async function commit()');
+  const commitEnd = src.indexOf('function releaseUploads()');
+  const commit = src.slice(commitStart, commitEnd);
+
+  assert.ok(
+    !/uploaded\.length = 0;/.test(commit),
+    'commit() still clears the tracked uploads before the card row is created',
+  );
+
+  assert.match(src, /function releaseUploads\(\)/, 'releaseUploads() is missing');
+
+  // saveCard must release on success and roll back on failure.
+  const save = src.slice(src.indexOf('export async function saveCard'));
+  assert.match(save, /cropper\?\.releaseUploads\(\)/, 'saveCard must release on success');
+  assert.match(save, /cropper\?\.cleanupUploads\(\)/, 'saveCard must roll back on failure');
+
+  // And the edit path, which bypasses saveCard, must release too.
+  const app = readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+  assert.match(
+    app,
+    /await cardsApi\.update\(patch\);[\s\S]*releaseUploads\(\)/,
+    'the edit path must release uploads after a successful update, or a later ' +
+      'failure would delete images the card now depends on',
+  );
+});
+
+await t('the sticky bars paint the same gradient as the body', () => {
+  // A flat fill on the sticky header/tab strip slid visibly past the multi-stop
+  // page gradient as two hard-edged moving bands. The gradient lives in a
+  // variable so the two cannot drift apart again.
+  const css = readFileSync(new URL('../src/input.css', import.meta.url), 'utf8');
+  assert.match(css, /--page-gradient:/, '--page-gradient is not defined');
+  assert.match(css, /background-image:\s*var\(--page-gradient\)/, 'body does not use it');
+  assert.match(css, /@utility page-bg/, 'the page-bg utility is missing');
+  assert.match(
+    css,
+    /@utility page-bg\s*\{[^}]*var\(--page-gradient\)[^}]*background-attachment:\s*fixed/,
+    'page-bg must use the gradient AND background-attachment: fixed, or the ' +
+      'seam reappears on scroll',
+  );
+
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+
+  // Match the `sticky` POSITION utility as its own class token. A substring
+  // match also catches `glass-sticky`, which is a panel, not a sticky bar.
+  const stickyBars = [...html.matchAll(/class="([^"]*)"/g)]
+    .map((m) => m[1])
+    .filter((cls) => cls.split(/\s+/).includes('sticky'));
+
+  assert.ok(
+    stickyBars.length >= 2,
+    `expected the header and tab strip to be sticky, found ${stickyBars.length}`,
+  );
+
+  for (const cls of stickyBars) {
+    assert.ok(
+      cls.split(/\s+/).includes('page-bg'),
+      `a sticky bar is not using page-bg: "${cls}" — its background will not ` +
+        'line up with the page gradient and will show as a sliding rectangle',
+    );
+  }
+
+  assert.ok(
+    !/class="[^"]*\bsticky\b[^"]*bg-blush/.test(html),
+    'a sticky bar still uses the flat bg-blush fill',
+  );
+});
+
 await t('fmtTime renders a Spotify-style timestamp', () => {
   const { fmtTime } = captured().appShell();
   assert.equal(fmtTime(0), '0:00', 'zero');

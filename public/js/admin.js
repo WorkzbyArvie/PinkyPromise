@@ -162,12 +162,50 @@ export function createCropper({ onUpdate }) {
     const originalUpload = await uploadApi.image(originalBlob, 'photo', 'original');
     uploaded.push(originalUpload.path);
 
-    // Success — these now belong to the card row, so stop tracking them.
-    uploaded.length = 0;
+    /*
+     * `/api/upload` returns { url, path, bytes, mime } — the key is `url`.
+     *
+     * This used to read `cardUpload.photo_url`, which is undefined. So
+     * `admin.form.photo_url` was undefined, JSON.stringify dropped the key
+     * entirely, and the server rejected the insert with the generic
+     * "This field is required." — while the two images sat orphaned in
+     * storage. It presented as "the date is optional and I still can't save".
+     *
+     * So the URL is validated here rather than trusted: a missing value now
+     * fails at the point of upload with a readable message, instead of
+     * surfacing three screens later as a validation error about the wrong
+     * thing entirely.
+     *
+     * `uploaded` is deliberately NOT cleared here. These objects do not belong
+     * to the card until the row exists, so they stay tracked and a failed insert
+     * rolls them back via cleanupUploads(). releaseUploads() is called once the
+     * row is created.
+     */
+    const cardUrl = cardUpload?.url;
+    const originalUrl = originalUpload?.url;
+
+    if (typeof cardUrl !== 'string' || !/^https?:\/\//i.test(cardUrl)) {
+      throw new Error(
+        'The photo uploaded but the server did not return a link to it. '
+        + "Try again, and if it keeps happening check that the storage bucket's "
+        + 'public URL is reachable.',
+      );
+    }
+
     return {
-      photo_url: cardUpload.photo_url,
-      photo_original_url: originalUpload.photo_url,
+      photo_url: cardUrl,
+      photo_original_url: typeof originalUrl === 'string' ? originalUrl : null,
     };
+  }
+
+  /**
+   * Stop tracking the uploaded objects as orphans.
+   *
+   * Called only after the card row exists, at which point the URLs belong to a
+   * saved record and must NOT be deleted by a later failure.
+   */
+  function releaseUploads() {
+    uploaded.length = 0;
   }
 
   function rotate() {
@@ -259,6 +297,7 @@ export function createCropper({ onUpdate }) {
     nudge,
     teardown,
     cleanupUploads,
+    releaseUploads,
     get ready() {
       return Boolean(cropper);
     },
@@ -285,10 +324,22 @@ export function validateCard(form) {
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
-/** Create a card, rolling back the uploads if the insert fails. */
+/**
+ * Create a card, rolling back the uploads if the insert fails.
+ *
+ * The rollback only works because commit() leaves the uploaded paths tracked.
+ * It used to clear them on the way out, on the assumption that "the upload
+ * succeeded, so these now belong to the card" — but the row does not exist yet.
+ * Every failed insert therefore left two orphaned images in storage, which is
+ * exactly what was found in the bucket while photo_cards was still empty.
+ *
+ * releaseUploads() is called only once the row is safely created.
+ */
 export async function saveCard(card, cropper) {
   try {
-    return await cardsApi.create(card);
+    const created = await cardsApi.create(card);
+    cropper?.releaseUploads();
+    return created;
   } catch (err) {
     await cropper?.cleanupUploads();
     throw err;
