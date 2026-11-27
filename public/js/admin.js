@@ -304,6 +304,32 @@ export function createCropper({ onUpdate }) {
   };
 }
 
+export const MAX_EXTRA_PHOTOS = 9; // + the cover = 10 per memory
+
+/**
+ * Downscale one extra photo (no crop) and upload it. Resolves with { url, path }.
+ * Same type/size checks as the cover, and ≤2400px so it fits the 4 MB limit.
+ */
+export async function uploadExtraPhoto(file) {
+  if (!ACCEPTED.includes(file.type)) throw new Error('Please choose JPEG, PNG, or WebP images.');
+  if (file.size > MAX_SOURCE_BYTES) throw new Error('One photo is larger than 25 MB.');
+
+  const src = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("One file couldn't be read as an image."));
+      img.src = src;
+    });
+    const res = await uploadApi.image(await renderOriginal(img), 'photo', 'extra');
+    if (typeof res?.url !== 'string') throw new Error('A photo uploaded but no link came back.');
+    return { url: res.url, path: res.path };
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}
+
 /** Validate + normalise the card form before we hit the API. */
 export function validateCard(form) {
   const errors = {};

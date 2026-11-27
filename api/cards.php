@@ -23,7 +23,42 @@ require_once __DIR__ . '/../lib/storage.php';
 /** Columns we expose. Never SELECT * on a table a user can influence. */
 function card_columns(): string
 {
-    return 'id, photo_url, photo_original_url, title, letter_text, memory_date, created_at';
+    return 'id, photo_url, photo_original_url, extra_photos, title, letter_text, memory_date, created_at';
+}
+
+const MAX_EXTRA_PHOTOS = 9; // + the cover photo = 10 per memory
+
+/** PDO hands jsonb back as a string; decode it for the client. */
+function card_out(?array $row): ?array
+{
+    if ($row !== null) {
+        $row['extra_photos'] = json_decode((string) ($row['extra_photos'] ?? '[]'), true) ?: [];
+    }
+    return $row;
+}
+
+/** Validate the extra_photos list: an array of at most 9 http(s) URLs. */
+function extra_photos_in(mixed $value): array
+{
+    if (!is_array($value) || !array_is_list($value) || count($value) > MAX_EXTRA_PHOTOS) {
+        fail_validation(['extra_photos' => 'Up to ' . MAX_EXTRA_PHOTOS . ' extra photos are allowed.']);
+    }
+    foreach ($value as $url) {
+        if (!is_string($url) || strlen($url) > 2048 || !preg_match('#^https?://#i', $url)) {
+            fail_validation(['extra_photos' => 'One of the extra photos has an invalid link.']);
+        }
+    }
+    return $value;
+}
+
+function delete_stored(array $urls): void
+{
+    foreach ($urls as $url) {
+        $path = storage_path_from_url((string) $url);
+        if ($path !== null) {
+            storage_delete($path);
+        }
+    }
 }
 
 try {
@@ -52,7 +87,7 @@ try {
                 $rows = db_all("select {$cols} from photo_cards order by created_at desc");
             }
 
-            json_ok($rows);
+            json_ok(array_map('card_out', $rows));
 
         // ------------------------------------------------------------------
         case 'POST':
@@ -71,15 +106,17 @@ try {
             }
 
             $c = $v->values();
+            $extras = extra_photos_in($body['extra_photos'] ?? []);
 
             $id = db_insert(
                 'insert into photo_cards
-                     (photo_url, photo_original_url, title, letter_text, memory_date)
-                 values (:url, :orig, :title, :letter, :mem)
+                     (photo_url, photo_original_url, extra_photos, title, letter_text, memory_date)
+                 values (:url, :orig, cast(:extras as jsonb), :title, :letter, :mem)
                  returning id',
                 [
                     'url'    => $c['photo_url'],
                     'orig'   => $c['photo_original_url'] ?: null,
+                    'extras' => json_encode($extras),
                     'title'  => $c['title'],
                     'letter' => $c['letter_text'],
                     'mem'    => $c['memory_date'],
@@ -87,7 +124,7 @@ try {
             );
 
             log_info('card created', ['id' => $id]);
-            json_ok(db_one("select {$cols} from photo_cards where id = :id", ['id' => $id]), 201);
+            json_ok(card_out(db_one("select {$cols} from photo_cards where id = :id", ['id' => $id])), 201);
 
         // ------------------------------------------------------------------
         case 'PATCH':
@@ -101,12 +138,13 @@ try {
             $cardId = $id->values()['id'];
 
             $existing = db_one(
-                'select id, photo_url, photo_original_url from photo_cards where id = :id',
+                'select id, photo_url, photo_original_url, extra_photos from photo_cards where id = :id',
                 ['id' => $cardId]
             );
             if ($existing === null) {
                 json_error('not_found', "That memory doesn't exist.", 404);
             }
+            $existing = card_out($existing);
 
             // Validate ONLY the fields the caller actually sent, so a partial
             // update cannot blank an untouched column.
@@ -146,11 +184,23 @@ try {
                 $params[$field] = $value;
             }
 
+            $newExtras = null;
+            if (array_key_exists('extra_photos', $body)) {
+                $newExtras = extra_photos_in($body['extra_photos']);
+                $sets[] = 'extra_photos = cast(:extra_photos as jsonb)';
+                $params['extra_photos'] = json_encode($newExtras);
+            }
+
             if ($sets === []) {
                 json_error('nothing_to_update', 'No changes were supplied.', 400);
             }
 
             db_run('update photo_cards set ' . implode(', ', $sets) . ' where id = :id', $params);
+
+            // Extra photos the edit removed would otherwise orphan in the bucket.
+            if ($newExtras !== null) {
+                delete_stored(array_diff($existing['extra_photos'], $newExtras));
+            }
 
             // A re-crop swaps photo_url; drop the superseded object so the
             // bucket doesn't accumulate an orphan on every re-crop.
@@ -162,7 +212,7 @@ try {
                 }
             }
 
-            json_ok(db_one("select {$cols} from photo_cards where id = :id", ['id' => $cardId]));
+            json_ok(card_out(db_one("select {$cols} from photo_cards where id = :id", ['id' => $cardId])));
 
         // ------------------------------------------------------------------
         case 'DELETE':
@@ -174,24 +224,21 @@ try {
             $cardId = $v->values()['id'];
 
             $existing = db_one(
-                'select photo_url, photo_original_url from photo_cards where id = :id',
+                'select photo_url, photo_original_url, extra_photos from photo_cards where id = :id',
                 ['id' => $cardId]
             );
             if ($existing === null) {
                 json_error('not_found', "That memory doesn't exist.", 404);
             }
+            $existing = card_out($existing);
 
             db_run('delete from photo_cards where id = :id', ['id' => $cardId]);
 
-            foreach (['photo_url', 'photo_original_url'] as $key) {
-                if (empty($existing[$key])) {
-                    continue;
-                }
-                $path = storage_path_from_url((string) $existing[$key]);
-                if ($path !== null) {
-                    storage_delete($path);
-                }
-            }
+            delete_stored(array_filter([
+                $existing['photo_url'],
+                $existing['photo_original_url'],
+                ...$existing['extra_photos'],
+            ]));
 
             log_info('card deleted', ['id' => $cardId]);
             json_ok(['deleted' => true, 'id' => $cardId]);

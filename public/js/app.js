@@ -35,7 +35,7 @@ import {
 import { categories, pageBy, onRowKeydown, revealTab } from './decks.js';
 import { createJar } from './jar.js';
 import { createPlayer } from './player.js';
-import { createCropper, validateCard, saveCard } from './admin.js';
+import { createCropper, validateCard, saveCard, uploadExtraPhoto, MAX_EXTRA_PHOTOS } from './admin.js';
 import { resolveSource } from './sources.js';
 import {
   isDemo,
@@ -158,6 +158,8 @@ function appShell() {
     admin: { open: false, step: 'pick', editing: false, form: {}, errors: {}, preview: null },
     adminError: null,
     cropBusy: false,
+    extraBusy: false,
+    _extraUploads: [], // storage paths added this session, removed if the modal closes unsaved
     saveBusy: false,
 
     /* settings */
@@ -570,7 +572,7 @@ function appShell() {
 
     openViewer(card) {
       if (!card) return;
-      this.viewer = { open: true, card, flipped: false, canEdit: !this.demoMode };
+      this.viewer = { open: true, card, flipped: false, canEdit: !this.demoMode, shown: card.photo_url };
       document.body.style.overflow = 'hidden';
     },
 
@@ -1126,8 +1128,10 @@ function appShell() {
           title: card?.title ?? '',
           letter_text: card?.letter_text ?? '',
           memory_date: card?.memory_date ?? '',
+          extra_photos: [...(card?.extra_photos ?? [])],
         },
       };
+      this._extraUploads = [];
       this._existingCard = editing ? card : null;
       document.body.style.overflow = 'hidden';
     },
@@ -1156,7 +1160,41 @@ function appShell() {
 
     
 
+    async addExtraPhotos(event) {
+      const files = [...(event.target.files ?? [])];
+      event.target.value = '';
+      const room = MAX_EXTRA_PHOTOS - this.admin.form.extra_photos.length;
+      if (!files.length) return;
+      this.adminError = files.length > room
+        ? `Up to 10 photos per memory — ${room} more can be added.`
+        : null;
+
+      this.extraBusy = true;
+      try {
+        for (const file of files.slice(0, room)) {
+          const { url, path } = this.demoMode
+            ? { url: URL.createObjectURL(file), path: null }
+            : await uploadExtraPhoto(file);
+          if (path) this._extraUploads.push(path);
+          this.admin.form.extra_photos.push(url);
+        }
+      } catch (err) {
+        this.adminError = err.message || "Couldn't add that photo.";
+      } finally {
+        this.extraBusy = false;
+      }
+    },
+
+    removeExtraPhoto(i) {
+      // Stored objects are deleted server-side on save (PATCH diff) or on close (unsaved uploads).
+      this.admin.form.extra_photos.splice(i, 1);
+    },
+
     closeAdmin() {
+      if (this._extraUploads.length) {
+        Promise.allSettled(this._extraUploads.map((p) => uploadApi.remove(p)));
+        this._extraUploads = [];
+      }
       this._cropper?.teardown();
       this._cropper = null;
       this.admin = {
@@ -1240,6 +1278,7 @@ function appShell() {
             title: this.admin.form.title,
             letter_text: this.admin.form.letter_text,
             memory_date: this.admin.form.memory_date || null,
+            extra_photos: this.admin.form.extra_photos,
             created_at: new Date().toISOString(),
           };
           this.photos = this.admin.editing
@@ -1254,6 +1293,7 @@ function appShell() {
             title: this.admin.form.title,
             letter_text: this.admin.form.letter_text,
             memory_date: this.admin.form.memory_date || null,
+            extra_photos: this.admin.form.extra_photos,
           };
           if (this.admin.form.photo_url && this.admin.form.photo_url !== this._existingCard.photo_url) {
             patch.photo_url = this.admin.form.photo_url;
@@ -1274,6 +1314,7 @@ function appShell() {
           this.photos = [created, ...this.photos];
           await this._loadCalendarRange();
         }
+        this._extraUploads = []; // saved: they belong to the card now
         this.closeAdmin();
       } catch (err) {
         this.adminError = err.message || "Couldn't save that memory.";

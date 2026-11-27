@@ -641,7 +641,7 @@
 
         <!-- FRONT -->
         <div class="absolute inset-0 overflow-hidden rounded-card glossy [backface-visibility:hidden]">
-          <img x-show="viewer.card" :src="viewer.card?.photo_url" :alt="viewer.card?.title" class="h-full w-full object-cover">
+          <img x-show="viewer.card" :src="viewer.shown || viewer.card?.photo_url" :alt="viewer.card?.title" class="h-full w-full object-cover">
           <span class="glossy-after" aria-hidden="true"></span>
           <div class="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-ink-strong/60 to-transparent p-4 pt-12">
             <span class="text-label font-bold text-white">Tap the envelope to read</span>
@@ -668,6 +668,17 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- gallery: cover + extra photos -->
+    <div x-show="viewer.card?.extra_photos?.length" class="mt-3 flex gap-2 overflow-x-auto pb-1">
+      <template x-for="(url, i) in [viewer.card?.photo_url, ...(viewer.card?.extra_photos ?? [])]" :key="url">
+        <button type="button" @click="viewer.shown = url; flipClose()" :aria-label="`Show photo ${i + 1}`"
+                class="size-14 shrink-0 overflow-hidden rounded-input ring-2 transition"
+                :class="(viewer.shown || viewer.card?.photo_url) === url ? 'ring-white' : 'ring-transparent opacity-70'">
+          <img :src="url" alt="" class="h-full w-full object-cover">
+        </button>
+      </template>
     </div>
 
     <!-- admin actions -->
@@ -1101,6 +1112,32 @@
                   class="inline-flex min-h-11 items-center gap-2 rounded-input bg-white/55 px-4 text-label font-bold text-ink-strong transition-colors hover:bg-white/80">
             <span x-html="ic('upload', 16)"></span> Replace photo
           </button>
+        </div>
+
+        <!-- extra photos: cover + up to 9 more = 10 per memory -->
+        <div>
+          <p class="mb-1.5 text-label font-bold text-ink-strong">
+            More photos <span class="font-normal" x-text="`(${1 + (admin.form.extra_photos?.length ?? 0)} of 10)`"></span>
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="(url, i) in admin.form.extra_photos ?? []" :key="url">
+              <div class="relative size-16">
+                <img :src="url" :alt="`Extra photo ${i + 1}`" class="size-16 rounded-input object-cover">
+                <button type="button" @click="removeExtraPhoto(i)" :aria-label="`Remove extra photo ${i + 1}`"
+                        class="absolute -right-2 -top-2 inline-flex size-7 items-center justify-center rounded-full bg-white text-ink-strong shadow">
+                  <span x-html="ic('x', 14)"></span>
+                </button>
+              </div>
+            </template>
+            <label x-show="(admin.form.extra_photos?.length ?? 0) < 9"
+                   class="inline-flex size-16 cursor-pointer items-center justify-center rounded-input bg-white/55 text-ink-strong hover:bg-white/80"
+                   :class="extraBusy && 'pointer-events-none opacity-50'">
+              <span class="sr-only">Add more photos</span>
+              <span x-html="ic('upload', 18)"></span>
+              <input type="file" multiple accept="image/jpeg,image/png,image/webp" class="sr-only"
+                     @change="addExtraPhotos($event)" :disabled="extraBusy">
+            </label>
+          </div>
         </div>
 
         <div>
