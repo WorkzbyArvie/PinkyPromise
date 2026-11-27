@@ -411,6 +411,12 @@
    ============================================================ */
 
 @layer base {
+  /* Nothing may push the page wider than the phone screen. */
+  html,
+  body {
+    overflow-x: clip;
+  }
+
   html {
     /* Keep keyboard focus clear of the fixed music bar (WCAG 2.2 focus-not-obscured). */
     scroll-padding-bottom: 96px;
