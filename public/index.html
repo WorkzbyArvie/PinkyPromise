@@ -703,7 +703,7 @@
 
     <!-- admin actions -->
     <div x-show="viewer.card && viewer.canEdit" class="mt-4 flex justify-center gap-2">
-      <button type="button" @click="closeViewer(); openAdmin(viewer.card, true)"
+      <button type="button" @click="const c = viewer.card; closeViewer(); openAdmin(c, true)"
               class="inline-flex min-h-11 items-center gap-2 rounded-input bg-white/20 px-4 text-label font-bold text-white backdrop-blur transition-colors hover:bg-white/35">
         <span x-html="ic('pencil', 16)"></span> Edit
       </button>

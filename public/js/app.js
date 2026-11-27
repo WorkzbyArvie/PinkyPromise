@@ -1130,6 +1130,7 @@ function appShell() {
     /* =========================== admin ============================ */
 
     openAdmin(card = null, editing = false) {
+      editing = editing && Boolean(card); // never "edit" nothing — save would crash on _existingCard.id
       this.adminError = null;
       this._cropper?.teardown();
       this._cropper = null;
