@@ -417,6 +417,22 @@
     overflow-x: clip;
   }
 
+  /* iOS Safari gives date inputs an intrinsic min-width that ignores w-full,
+     so they overflowed the form. Native appearance off = they obey the box. */
+  input[type="date"],
+  input[type="month"],
+  input[type="time"] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 3rem;
+  }
+  input[type="date"]::-webkit-date-and-time-value {
+    text-align: left;
+  }
+
   html {
     /* Keep keyboard focus clear of the fixed music bar (WCAG 2.2 focus-not-obscured). */
     scroll-padding-bottom: 96px;
