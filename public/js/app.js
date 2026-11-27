@@ -159,6 +159,7 @@ function appShell() {
     adminError: null,
     cropBusy: false,
     extraBusy: false,
+    _swipeX: null,
     _extraUploads: [], // storage paths added this session, removed if the modal closes unsaved
     saveBusy: false,
 
@@ -574,6 +575,24 @@ function appShell() {
       if (!card) return;
       this.viewer = { open: true, card, flipped: false, canEdit: !this.demoMode, shown: card.photo_url };
       document.body.style.overflow = 'hidden';
+    },
+
+    get viewerPhotos() {
+      const c = this.viewer.card;
+      return c ? [c.photo_url, ...(c.extra_photos ?? [])] : [];
+    },
+
+    /** Step through the memory's photos; wraps around at either end. */
+    viewerStep(dir) {
+      const list = this.viewerPhotos;
+      if (list.length < 2) return;
+      const i = list.indexOf(this.viewer.shown || list[0]);
+      this.viewer.shown = list[(i + dir + list.length) % list.length];
+    },
+
+    viewerSwipe(endX) {
+      const dx = endX - (this._swipeX ?? endX);
+      if (Math.abs(dx) > 40) this.viewerStep(dx < 0 ? 1 : -1);
     },
 
     closeViewer() {

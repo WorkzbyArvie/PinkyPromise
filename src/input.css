@@ -316,6 +316,21 @@
   }
 }
 
+/* Swiped-in photo fades in. */
+@keyframes photoIn {
+  from {
+    opacity: 0.2;
+    transform: scale(1.03);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@utility photo-swap {
+  animation: photoIn 320ms var(--ease-soft);
+}
+
 /* Light sweep across a photocard on hover. */
 @keyframes shine {
   from {

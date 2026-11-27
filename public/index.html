@@ -622,7 +622,8 @@
      ================================================================== -->
 <div x-show="viewer.open" x-cloak class="fixed inset-0 z-50 grid place-items-center p-4"
      role="dialog" aria-modal="true" aria-labelledby="viewer-title"
-     @keydown.escape.window="closeViewer()" @click.self="closeViewer()">
+     @keydown.escape.window="closeViewer()" @click.self="closeViewer()"
+     @keydown.arrow-left.window="viewer.open && viewerStep(-1)" @keydown.arrow-right.window="viewer.open && viewerStep(1)">
   <div class="modal-scrim absolute inset-0" aria-hidden="true"></div>
 
   <div class="relative w-full max-w-md">
@@ -640,8 +641,27 @@
            :class="viewer.flipped ? '[transform-style:preserve-3d]' : ''">
 
         <!-- FRONT -->
-        <div class="absolute inset-0 overflow-hidden rounded-card glossy [backface-visibility:hidden]">
-          <img x-show="viewer.card" :src="viewer.shown || viewer.card?.photo_url" :alt="viewer.card?.title" class="h-full w-full object-cover">
+        <div class="absolute inset-0 overflow-hidden rounded-card glossy [backface-visibility:hidden] touch-pan-y"
+             @touchstart.passive="_swipeX = $event.touches[0].clientX"
+             @touchend="viewerSwipe($event.changedTouches[0].clientX)">
+          <template x-for="url in [viewer.shown || viewer.card?.photo_url]" :key="url">
+            <img x-show="viewer.card" :src="url" :alt="viewer.card?.title" draggable="false" class="photo-swap h-full w-full select-none object-cover">
+          </template>
+          <!-- arrows + dots, only when there is more than one photo -->
+          <template x-if="viewerPhotos.length > 1">
+            <div>
+              <button type="button" @click.stop="viewerStep(-1)" aria-label="Previous photo"
+                      class="absolute left-2 top-1/2 inline-flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/70 text-xl font-bold text-ink-strong backdrop-blur hover:bg-white">‹</button>
+              <button type="button" @click.stop="viewerStep(1)" aria-label="Next photo"
+                      class="absolute right-2 top-1/2 inline-flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/70 text-xl font-bold text-ink-strong backdrop-blur hover:bg-white">›</button>
+              <div class="absolute inset-x-0 top-3 flex justify-center gap-1.5" aria-hidden="true">
+                <template x-for="url in viewerPhotos" :key="url">
+                  <span class="h-1.5 rounded-full bg-white transition-all duration-300"
+                        :class="(viewer.shown || viewer.card?.photo_url) === url ? 'w-5' : 'w-1.5 opacity-60'"></span>
+                </template>
+              </div>
+            </div>
+          </template>
           <span class="glossy-after" aria-hidden="true"></span>
           <div class="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-ink-strong/60 to-transparent p-4 pt-12">
             <span class="text-label font-bold text-white">Tap the envelope to read</span>
@@ -672,7 +692,7 @@
 
     <!-- gallery: cover + extra photos -->
     <div x-show="viewer.card?.extra_photos?.length" class="mt-3 flex gap-2 overflow-x-auto pb-1">
-      <template x-for="(url, i) in [viewer.card?.photo_url, ...(viewer.card?.extra_photos ?? [])]" :key="url">
+      <template x-for="(url, i) in viewerPhotos" :key="url">
         <button type="button" @click="viewer.shown = url; flipClose()" :aria-label="`Show photo ${i + 1}`"
                 class="size-14 shrink-0 overflow-hidden rounded-input ring-2 transition"
                 :class="(viewer.shown || viewer.card?.photo_url) === url ? 'ring-white' : 'ring-transparent opacity-70'">
@@ -782,8 +802,8 @@
      @keydown.escape.window="closeSettings()" @click.self="closeSettings()">
   <div class="modal-scrim fixed inset-0" aria-hidden="true"></div>
 
-  <div class="relative mx-auto my-8 w-full max-w-lg">
-    <div class="modal-surface rounded-card p-6">
+  <div class="relative mx-auto my-2 w-full max-w-lg sm:my-8">
+    <div class="modal-surface rounded-card p-4 sm:p-6">
       <div class="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 id="settings-title" class="text-title">Settings</h2>
@@ -894,8 +914,8 @@
      @keydown.escape.window="closeEventEdit()" @click.self="closeEventEdit()">
   <div class="modal-scrim fixed inset-0" aria-hidden="true"></div>
 
-  <div class="relative mx-auto my-8 w-full max-w-lg">
-    <div class="modal-surface rounded-card p-6">
+  <div class="relative mx-auto my-2 w-full max-w-lg sm:my-8">
+    <div class="modal-surface rounded-card p-4 sm:p-6">
       <div class="mb-5 flex items-start justify-between gap-3">
         <h2 id="event-edit-title" class="text-title" x-text="eventEdit.id ? 'Edit this day' : 'Mark this day'"></h2>
         <button type="button" @click="closeEventEdit()" aria-label="Close"
@@ -975,8 +995,8 @@
      @keydown.escape.window="closeDeckEdit()" @click.self="closeDeckEdit()">
   <div class="modal-scrim fixed inset-0" aria-hidden="true"></div>
 
-  <div class="relative mx-auto my-8 w-full max-w-lg">
-    <div class="modal-surface rounded-card p-6">
+  <div class="relative mx-auto my-2 w-full max-w-lg sm:my-8">
+    <div class="modal-surface rounded-card p-4 sm:p-6">
       <div class="mb-5 flex items-start justify-between gap-3">
         <h2 id="deck-edit-title" class="text-title" x-text="deckEdit.id ? 'Edit card' : 'New card'"></h2>
         <button type="button" @click="closeDeckEdit()" aria-label="Close"
@@ -1034,13 +1054,13 @@
 <!-- ==================================================================
      ADMIN MODAL — cropper + details
      ================================================================== -->
-<div x-show="admin.open" x-cloak class="fixed inset-0 z-50 overflow-y-auto p-4"
+<div x-show="admin.open" x-cloak class="fixed inset-0 z-50 overflow-y-auto p-2 sm:p-4"
      role="dialog" aria-modal="true" aria-labelledby="admin-title"
      @keydown.escape.window="closeAdmin()" @click.self="closeAdmin()">
   <div class="modal-scrim fixed inset-0" aria-hidden="true"></div>
 
-  <div class="relative mx-auto my-8 w-full max-w-lg">
-    <div class="modal-surface rounded-card p-6">
+  <div class="relative mx-auto my-2 w-full max-w-lg sm:my-8">
+    <div class="modal-surface rounded-card p-4 sm:p-6">
       <div class="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 id="admin-title" class="text-title" x-text="admin.editing ? 'Edit memory' : 'Add a memory'"></h2>
@@ -1070,8 +1090,10 @@
 
       <!-- step 2: crop -->
       <div x-show="admin.step === 'crop'">
-        <div class="relative mx-auto max-h-[52vh] w-fit">
-          <img x-ref="cropImage" alt="" class="max-h-[52vh] select-none">
+        <!-- Full width + fixed height: Cropper.js sizes itself to this box, and
+             w-fit shrank it to a thumbnail on phones. -->
+        <div class="relative h-[min(62vh,34rem)] w-full overflow-hidden rounded-input bg-ink-strong/5">
+          <img x-ref="cropImage" alt="" class="block max-w-full select-none">
         </div>
 
         <div class="mt-4 flex items-center justify-center gap-2">
