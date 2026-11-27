@@ -674,12 +674,12 @@
         </div>
 
         <!-- BACK (the letter) -->
-        <div class="absolute inset-0 overflow-hidden rounded-card modal-surface p-6 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+        <div class="absolute inset-0 flex flex-col overflow-hidden rounded-card modal-surface p-6 pb-20 [backface-visibility:hidden] [transform:rotateY(180deg)]">
           <span class="absolute right-4 top-4 text-rose" x-html="ic('heart', 26)"></span>
-          <p class="font-display text-title text-ink-strong" x-text="viewer.card?.title"></p>
-          <div class="my-3 h-px bg-ink/15"></div>
-          <!-- click skips to the end of the typewriter -->
-          <p x-ref="letter" class="letter-body cursor-pointer overflow-y-auto pr-2" @click="skipTypewriter()"></p>
+          <p class="shrink-0 pr-8 font-display text-title text-ink-strong" x-text="viewer.card?.title"></p>
+          <div class="my-3 h-px shrink-0 bg-ink/15"></div>
+          <!-- min-h-0 + flex-1 gives it a real height so overflow-y-auto can scroll; click skips the typewriter -->
+          <p x-ref="letter" class="letter-body min-h-0 flex-1 cursor-pointer overflow-y-auto overscroll-contain pr-2 [touch-action:pan-y]" @click="skipTypewriter()"></p>
           <div class="absolute inset-x-0 bottom-0 flex justify-center p-4">
             <button type="button" @click.stop="flipClose()"
                     class="min-h-11 rounded-full bg-rose-grad px-5 text-label font-bold text-white transition-colors hover:bg-rose-800">
