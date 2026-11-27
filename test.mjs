@@ -18,6 +18,7 @@ import {
   ymd,
   parseYmd,
   WEEKDAY_LABELS,
+  milestoneEvents,
 } from './public/js/calendar.js';
 import { createJar } from './public/js/jar.js';
 import { validateCard } from './public/js/admin.js';
@@ -33,6 +34,23 @@ const t = (name, fn) => {
     process.exitCode = 1;
   }
 };
+
+console.log('\ncalendar — auto milestones');
+
+t('milestoneEvents marks monthsaries and the anniversary, clamping short months', () => {
+  const ev = milestoneEvents(parseAnchor('2023-01-31'), 2024, 1, addMonths); // Feb 2024 view
+  const byDate = Object.fromEntries(ev.map((e) => [e.event_date, e]));
+  assert.equal(byDate['2024-01-31'].icon_type, 'anniversary');
+  assert.equal(byDate['2024-01-31'].title, '1st anniversary 💕');
+  assert.equal(byDate['2024-02-29'].title, '13th monthsary');
+  assert.equal(byDate['2024-03-31'].title, '14th monthsary');
+  assert.ok(ev.every((e) => e.auto));
+});
+
+t('milestoneEvents marks nothing before the anchor or without one', () => {
+  assert.deepEqual(milestoneEvents(null, 2024, 1, addMonths), []);
+  assert.deepEqual(milestoneEvents(parseAnchor('2024-06-01'), 2024, 1, addMonths), []);
+});
 
 console.log('\ncountdown â€” date math');
 

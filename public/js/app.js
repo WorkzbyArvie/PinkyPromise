@@ -23,7 +23,7 @@
 import Alpine from './vendor/alpine.esm.js';
 import { authApi, cardsApi, calendarApi, decksApi, settingsApi, tracksApi, uploadApi, versionApi } from './api.js';
 import { icon, EVENT_EMOJI, EVENT_LABEL, DECK_META } from './icons.js';
-import { parseAnchor, startCountdown } from './countdown.js';
+import { parseAnchor, startCountdown, addMonths } from './countdown.js';
 import { typewriter, caret } from './cardflip.js';
 import {
   buildMonthGrid,
@@ -31,6 +31,7 @@ import {
   monthLabel as monthLabelFor,
   WEEKDAY_LABELS,
   parseYmd,
+  milestoneEvents,
 } from './calendar.js';
 import { categories, pageBy, onRowKeydown, revealTab } from './decks.js';
 import { createJar } from './jar.js';
@@ -659,7 +660,8 @@ function appShell() {
 
     _rebuildCalendar() {
       const memories = this.photos.filter((p) => p.memory_date);
-      this.cells = buildMonthGrid(this.calYear, this.calMonth, this.events, memories);
+      const auto = milestoneEvents(parseAnchor(this.settings.anchor_date), this.calYear, this.calMonth, addMonths);
+      this.cells = buildMonthGrid(this.calYear, this.calMonth, [...auto, ...this.events], memories);
     },
 
     moveMonth(delta) {
@@ -927,6 +929,7 @@ function appShell() {
           });
           this.settings = { ...this.settings, ...updated };
         }
+        this._rebuildCalendar(); // anniversary/monthsary markers follow the anchor date
 
         // The countdown reads the anchor through a getter, so restart it or it
         // keeps ticking against the previous value. _startClock stops the

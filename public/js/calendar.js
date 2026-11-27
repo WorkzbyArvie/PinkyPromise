@@ -110,6 +110,36 @@ export function buildMonthGrid(year, month, events = [], memories = []) {
   return cells;
 }
 
+const ordinal = (n) => {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+/**
+ * Auto anniversary/monthsary markers for the months around year/month, derived
+ * from the anchor date. `addMonths` clamps, so a 31st anchor marks the 30th/28th.
+ */
+export function milestoneEvents(anchor, year, month, addMonths) {
+  if (!anchor) return [];
+  const out = [];
+  for (let m = month - 1; m <= month + 1; m += 1) {
+    const n = (year - anchor.getFullYear()) * 12 + (m - anchor.getMonth());
+    if (n <= 0) continue;
+    const date = addMonths(anchor, n);
+    const yearly = n % 12 === 0;
+    out.push({
+      id: `auto-${n}`,
+      auto: true,
+      event_date: ymd(date),
+      icon_type: yearly ? 'anniversary' : 'monthsary',
+      title: yearly ? `${ordinal(n / 12)} anniversary 💕` : `${ordinal(n)} monthsary`,
+      description: yearly ? `${n / 12} year${n === 12 ? '' : 's'} together.` : `${n} months together.`,
+    });
+  }
+  return out;
+}
+
 export function shiftMonth(year, month, delta) {
   const d = new Date(year, month + delta, 1);
   return { year: d.getFullYear(), month: d.getMonth() };

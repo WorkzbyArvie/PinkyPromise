@@ -742,7 +742,7 @@
               <span class="shrink-0 text-base leading-none" x-text="emojiForType(e.icon_type)"></span>
               <span class="truncate" x-text="e.title"></span>
             </p>
-            <div class="flex shrink-0 gap-1">
+            <div x-show="!e.auto" class="flex shrink-0 gap-1">
               <button type="button" @click="editEvent(e)" :aria-label="`Edit ${e.title}`"
                       class="inline-flex size-11 items-center justify-center rounded-full text-ink-strong transition-colors duration-200 hover:bg-white/65">
                 <span x-html="ic('pencil', 16)"></span>
