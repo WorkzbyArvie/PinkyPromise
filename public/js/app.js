@@ -1466,7 +1466,7 @@ function showFatal(err) {
         </p>
         <pre class="mt-4 overflow-auto rounded-input bg-white/60 p-3 text-left text-xs text-destructive">${String(message).replace(/[<>&]/g, '')}</pre>
         <button onclick="location.reload()"
-          class="mt-5 min-h-11 rounded-input bg-rose-deep px-5 text-body font-bold text-white">
+          class="mt-5 min-h-11 rounded-input bg-rose-grad px-5 text-body font-bold text-white">
           Reload
         </button>
       </div>
